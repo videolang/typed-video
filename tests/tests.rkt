@@ -20,10 +20,12 @@
 (check-type (f2 (f2 (blank 10))) : (Producer 10))
 
 ;; check consistent output type
+;; shorter not ok
 (typecheck-fail/toplvl
  (define (f3 [p : (Producer 10)] -> (Producer 9)) p)
  #:with-msg "expected \\(Producer 9\\), given \\(Producer 10\\)")
 
+;; longer ok
 (define (f4 [p : (Producer 10)] -> (Producer 11)) p)
 (check-type (f4 (blank 10)) : (Producer 11))
 (check-not-type (f4 (blank 10)) : (Producer 10))
