@@ -1,36 +1,43 @@
 #lang typed/video
+(require turnstile/examples/tests/rackunit-typechecking)
 ;; (require video/lib) ; playlist-append
 ;; (require rackunit "test-utils.rkt")
 
-;; ;; tests from paper examples
+;; tests from paper examples
 
-;; ;; TODO:
-;; ;; 2017-02-10: "length" properly not working? #:len testing disabled
-;; ;; 2017-02-07: swipe transition not working
+;; TODO:
+;; 2017-02-10: "length" properly not working? #:len testing disabled
+;; 2017-02-07: swipe transition not working
 
-;; (define circ-png "../examples/circ.png")
-;; (define vid-mp4 "../examples/vid.mp4")
+(define circ-png "circ.png")
+(define vid-mp4 "vid.mp4")
+(check-type circ-png : String)
+(check-type vid-mp4 : String)
 
-;; ;; fig1 -----------------------------------------------------------------------
+;; fig1 -----------------------------------------------------------------------
 
-;; (define g (color "green"))
-;; (define g1 (color "green" #:length 1))
-;; (check-producer g #:len inf)
-;;  ;; TODO: fix (get-property _ "length")
-;; ;(check-producer g1 #:len 1)
-;; (check-producer? g1)
+(define g (color "green"))
+(define g1 (color "green" #:length 1))
+(check-type g : Producer)
+(check-not-type g : (Producer 1))
+(check-type g1 : (Producer 1))
+(check-type g1 : (Producer 2))
+(check-type g1 : Producer)
 
-;; (check-producer?
-;;  ;; TODO: fix (get-property _ "length")
-;;  (image circ-png #:length (/ (blue-length) 8)))
-;; ; #:len 8)
+(define blue-clip (color "blue" #:length 8))
+(check-type blue-clip : (Producer 8))
 
-;; (check-transition? (composite-transition 0 0 3/4 3/4))
+;; TODO: define-lifting not working for typed define
+(define (blue-length -> Int) (get-property blue-clip "length" 'int))
+(check-type (blue-length) : Int)
+
+;; TODO: eval-syntax length arg?
+(check-type (image circ-png #:length (/ (blue-length) 8)) : Producer)
+
+(check-type (composite-transition 0 0 3/4 3/4) : Transition)
 ;; ;(check-transition? (swipe-transition #:direction 'up #:length 2)) ; TODO
-;; (check-transition? (fade-transition #:length 2))
+(check-type (fade-transition #:length 2) : Transition)
 
-;; (define (blue-length) (get-property blue-clip "length" 'int))
-;; (define blue-clip (color "blue" #:length 8))
 ;; (check-producer blue-clip #:len (blue-length))
 
 ;; (check-producer?

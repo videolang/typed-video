@@ -9,21 +9,33 @@
          (provide (all-from-out video))
          (provide . xs))]))
 
-(provide/types blank λ #%app + #%datum define begin)
-(provide Producer Int (type-out →) ann)
+(provide/types
+ λ #%app + / #%datum define begin
+ blank color image
+ composite-transition fade-transition
+ get-property)
+(provide Producer Transition Int Num String → ann)
 
+;; TODO:
+;; - 2017-02-13: #%module-begin define lifting not working for typed define
+
+;; override typecheck-relation to consider numbers
 (begin-for-syntax
   (define old-type-rel (current-typecheck-relation))
   (define (new-type-rel t1 t2)
     (define t1* (stx->datum t1))
     (define t2* (stx->datum t2))
     (or (and (number? t1*) (number? t2*) (<= t1* t2*))
+        (and (Int? t1) (Num? t2))
         (old-type-rel t1 t2)))
   (current-type=? new-type-rel)
   (current-typecheck-relation new-type-rel))
 
 ; ≫ τ ⊢ ⇒ ⇐
-(define-base-type Int)
+
+;; types ----------------------------------------------------------------------
+(define-base-types Transition String Int Num)
+;; TODO: support kws in function type
 (define-type-constructor → #:arity > 0)
 (define-internal-type-constructor Producer)
 (define-syntax (Producer stx)
@@ -33,15 +45,7 @@
     [(_ n:exact-nonnegative-integer)
      (add-orig (mk-type #'(Producer- n)) stx)]))
 
-(define-typed-syntax #%datum
-  [(_ . n:integer) ≫
-   --------
-   [⊢ (v:#%datum . n) ⇒ Int]]
-  [(_ . x) ≫
-   --------
-   [#:error (type-error #:src #'x #:msg "Unsupported literal: ~v" #'x)]])
-   
-
+;; prims ----------------------------------------------------------------------
 (define-typed-syntax +
   [_:id ≫ ; HO use is binary
    ----------
@@ -50,17 +54,30 @@
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
    [⊢ (v:#%app v:+ e- ...) ⇒ Int]])
-   
 
-(define-typed-syntax blank
-  [(_ n:exact-nonnegative-integer) ≫
-   --------
-   [⊢ (v:#%app v:blank n) ⇒ (Producer n)]]
-  ;; TODO: use eval when not literal?
-  [(_ n) ≫
-   --------
-   [⊢ (v:#%app v:blank n) ⇒ Producer]])
+(define-typed-syntax /
+  [_:id ≫ ; HO use is binary
+   ----------
+   [⊢ v:+ ⇒ (→ Int Int)]]
+  [(_ e ...) ≫
+   [⊢ e ≫ e- ⇐ Int] ...
+   ----------
+   [⊢ (v:#%app v:/ e- ...) ⇒ Int]])
 
+;; core forms -----------------------------------------------------------------
+(define-typed-syntax #%datum
+  [(_ . n:integer) ≫
+   --------
+   [⊢ (v:#%datum . n) ⇒ Int]]
+  [(_ . n:number) ≫
+   --------
+   [⊢ (v:#%datum . n) ⇒ Num]]
+  [(_ . s:str) ≫
+   ---------
+   [⊢ (v:#%datum . s) ⇒ String]]
+  [(_ . x) ≫
+   --------
+   [#:error (type-error #:src #'x #:msg "Unsupported literal: ~v" #'x)]])
 
 (define-typed-syntax λ #:datum-literals (:)
   [(_ ([x:id : τ_in:type] ...) e) ≫
@@ -134,3 +151,78 @@
    [⊢ e ≫ e- ⇒ τ_e]
    --------
    [⊢ (begin- e_unit- ... e-) ⇒ τ_e]])
+
+;; producers ------------------------------------------------------------------
+(define-typed-syntax blank
+  [(_ n:exact-nonnegative-integer) ≫
+   --------
+   [⊢ (v:#%app v:blank n) ⇒ (Producer n)]]
+  ;; TODO: use eval when not literal?
+  [(_ n) ≫
+   [⊢ n ≫ n- ⇐ Int]
+   --------
+   [⊢ (v:#%app v:blank n) ⇒ Producer]])
+
+;; TODO: abstract definitions of these producers
+;; TODO: add HO case
+(define-typed-syntax color
+  [(_ c) ≫
+   [⊢ c ≫ c- ⇐ String]
+   --------
+   [⊢ (v:#%app v:color c-) ⇒ Producer]]
+  [(_ c #:length n:exact-nonnegative-integer) ≫
+   [⊢ c ≫ c- ⇐ String]
+   [⊢ n ≫ n- ⇐ Int]
+   --------
+   [⊢ (v:#%app v:color c- #:length n-) ⇒ (Producer n)]]
+  [(_ c #:length n) ≫
+   [⊢ c ≫ c- ⇐ String]
+   [⊢ n ≫ n- ⇐ Int]
+   --------
+   [⊢ (v:#%app v:color c- #:length n-) ⇒ Producer]])
+
+(define-typed-syntax image
+  [(_ f) ≫
+   [⊢ f ≫ f- ⇐ String]
+   --------
+   [⊢ (v:#%app v:image f-) ⇒ Producer]]
+  [(_ f #:length n:exact-nonnegative-integer) ≫
+   [⊢ f ≫ f- ⇐ String]
+   [⊢ n ≫ n- ⇐ Int]
+   --------
+   [⊢ (v:#%app v:image f- #:length n-) ⇒ (Producer n)]]
+  [(_ f #:length n) ≫
+   [⊢ f ≫ f- ⇐ String]
+   [⊢ n ≫ n- ⇐ Int]
+   --------
+   [⊢ (v:#%app v:image f- #:length n-) ⇒ Producer]])
+
+;; transitions ----------------------------------------------------------------
+(define-typed-syntax composite-transition
+  [(_ x y w h) ≫
+   [⊢ x ≫ x- ⇐ Num]
+   [⊢ y ≫ y- ⇐ Num]
+   [⊢ w ≫ w- ⇐ Num]
+   [⊢ h ≫ h- ⇐ Num]
+   --------
+   [⊢ (v:#%app v:composite-transition x- y- w- h-) ⇒ Transition]])
+
+;; TODO: make Transition also parameteric in length
+(define-typed-syntax fade-transition
+  [(_ #:length n) ≫
+   [⊢ n ≫ n- ⇐ Int]
+   --------
+   [⊢ (v:#%app v:fade-transition #:length n-) ⇒ Transition]])
+
+;; props ----------------------------------------------------------------------
+(define-typed-syntax get-property
+  [(_ p k) ≫
+   [⊢ p ≫ p- ⇐ Producer]
+   [⊢ k ≫ k- ⇐ String]
+   --------
+   [⊢ (v:#%app v:get-property p- k-) ⇒ String]]
+  [(_ p k (_ (~datum int))) ≫
+   [⊢ p ≫ p- ⇐ Producer]
+   [⊢ k ≫ k- ⇐ String]
+   --------
+   [⊢ (v:#%app v:get-property p- k- 'int) ⇒ Int]])
