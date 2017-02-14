@@ -1,5 +1,7 @@
 #lang turnstile
-(require (prefix-in v: video))
+(require (prefix-in v: video)
+         (prefix-in v: video/lib)
+         #;(for-syntax video)) ; not working due to racket/gui
 
 (define-syntax (provide/types stx)
   (syntax-parse stx
@@ -11,10 +13,10 @@
 
 (provide/types
  λ #%app + / #%datum define begin
- blank color image
+ blank color image clip multitrack playlist
  composite-transition fade-transition
  get-property)
-(provide Producer Transition Int Num String → ann)
+(provide playlist-append Producer Transition Int Num String → ann)
 
 ;; TODO:
 ;; - 2017-02-13: #%module-begin define lifting not working for typed define
@@ -152,7 +154,7 @@
    --------
    [⊢ (begin- e_unit- ... e-) ⇒ τ_e]])
 
-;; producers ------------------------------------------------------------------
+;; basic producers ------------------------------------------------------------
 (define-typed-syntax blank
   [(_ n:exact-nonnegative-integer) ≫
    --------
@@ -196,6 +198,93 @@
    [⊢ n ≫ n- ⇐ Int]
    --------
    [⊢ (v:#%app v:image f- #:length n-) ⇒ Producer]])
+
+;; TODO: read clip at compile time
+(define-typed-syntax clip
+  [(_ f) ≫
+   [⊢ f ≫ f- ⇐ String]
+   --------
+   [⊢ (v:#%app v:clip f-) ⇒ Producer]]
+  [(_ f #:length n:exact-nonnegative-integer) ≫
+   [⊢ f ≫ f- ⇐ String]
+   [⊢ n ≫ n- ⇐ Int]
+   --------
+   [⊢ (v:#%app v:clip f- #:length n-) ⇒ (Producer n)]]
+  [(_ f #:length n) ≫
+   [⊢ f ≫ f- ⇐ String]
+   [⊢ n ≫ n- ⇐ Int]
+   --------
+   [⊢ (v:#%app v:clip f- #:length n-) ⇒ Producer]]
+  [(_ f #:start n:exact-nonnegative-integer #:end m:exact-nonnegative-integer) ≫
+   [⊢ f ≫ f- ⇐ String]
+   [⊢ n ≫ n- ⇐ Int]
+   [⊢ m ≫ m- ⇐ Int]
+   --------
+   [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ (Producer #,(- (stx->datum #'m)
+                                                               (stx->datum #'n)))]]
+  [(_ f #:start n #:end m) ≫
+   [⊢ f ≫ f- ⇐ String]
+   [⊢ n ≫ n- ⇐ Int]
+   [⊢ m ≫ m- ⇐ Int]
+   --------
+   [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ Producer]])
+
+
+;; playlist combinators -------------------------------------------------------
+;; TODO: should be interleaved Transition and Producer?
+(define-typed-syntax multitrack
+  [(_ (~and p (~not _:keyword)) ... #:length n:exact-nonnegative-integer) ≫
+   [⊢ p ≫ p- ⇒ ty] ...
+   #:when (stx-andmap (λ (t) (or (Transition? t) (Producer? t))) #'(ty ...))
+   [⊢ n ≫ n- ⇐ Int]
+   ------------
+   [⊢ (v:#%app v:multitrack p- ... #:length n-) ⇒ (Producer n)]]
+  [(_ (~and p (~not _:keyword)) ... #:length n) ≫
+   [⊢ p ≫ p- ⇒ ty] ...
+   #:when (stx-andmap (λ (t) (or (Transition? t) (Producer? t))) #'(ty ...))
+   [⊢ n ≫ n- ⇐ Int]
+   ------------
+   [⊢ (v:#%app v:multitrack p- ... #:length n-) ⇒ Producer]]
+  [(_ p ...) ≫
+   [⊢ p ≫ p- ⇒ ty] ...
+   #:when (stx-andmap (λ (t) (or (Transition? t) (Producer? t))) #'(ty ...))
+   ------------
+   [⊢ (v:#%app v:multitrack p- ...) ⇒ Producer]])
+   
+(define-typed-syntax playlist
+  [(_ p ...) ≫
+   [⊢ p ≫ p- ⇒ (~Producer n)] ...
+   ------------
+   [⊢ (v:#%app v:playlist p- ...)
+      ⇒ (Producer- #,(apply + (map (λ (m)
+                                    (define m*
+                                      (syntax-parse m
+                                        [(_ mm) (stx->datum #'mm)]))
+                                     (or (and (number? m*) m*)
+                                         +inf.0)) ; TODO: fixme
+                                   (attribute n))))]]
+  [(_ p ...) ≫
+   [⊢ p ≫ p- ⇐ Producer] ...
+   ------------
+   [⊢ (v:#%app v:playlist p- ...) ⇒ Producer]])
+
+;; TODO: fixme, not any producer allowed
+(define-typed-syntax playlist-append
+  [(_ p ...) ≫
+   [⊢ p ≫ p- ⇒ (~Producer n)] ...
+   ------------
+   [⊢ (v:#%app v:playlist-append p- ...)
+      ⇒ (Producer- #,(apply + (map (λ (m)
+                                    (define m*
+                                      (syntax-parse m
+                                        [(_ mm) (stx->datum #'mm)]))
+                                     (or (and (number? m*) m*)
+                                         +inf.0)) ; TODO: fixme
+                                   (attribute n))))]]
+  [(_ p ...) ≫
+   [⊢ p ≫ p- ⇐ Producer] ...
+   ------------
+   [⊢ (v:#%app v:playlist-append p- ...) ⇒ Producer]])
 
 ;; transitions ----------------------------------------------------------------
 (define-typed-syntax composite-transition

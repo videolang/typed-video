@@ -38,38 +38,47 @@
 ;; ;(check-transition? (swipe-transition #:direction 'up #:length 2)) ; TODO
 (check-type (fade-transition #:length 2) : Transition)
 
-;; (check-producer blue-clip #:len (blue-length))
+(check-type
+ (multitrack
+  (image circ-png #:length (/ (blue-length) 8))
+  (composite-transition 0 0 3/4 3/4)
+  blue-clip
+  #:length 5)
+ : Producer)
 
-;; (check-producer?
-;;  (multitrack
-;;   (image circ-png #:length (/ (blue-length) 8))
-;;   (composite-transition 0 0 3/4 3/4)
-;;   blue-clip
-;;   #:length 5))
-;; ; #:len 5)
+(check-type
+ (multitrack
+  (image circ-png #:length (/ (blue-length) 8))
+  (composite-transition 0 0 3/4 3/4)
+  blue-clip
+  #:length 5)
+ : (Producer 5))
 
-;; (check-producer? (clip vid-mp4 #:length 3)); #:len 3)
+(check-type (clip vid-mp4 #:length 3) : (Producer 3))
 
-;; ; other examples, section 4 ---------------------------------------------------
-;; (check-producer (color "blue" #:length 2)); #:len 2)
-;; (check-producer (clip vid-mp4 #:start 100 #:end 103)); #:len 3)
-;; (check-producer (image circ-png #:length 1)); #:len 1)
-;; (check-producer (blank 2)); #:len 2)
-;; (define circ-img (image circ-png))
-;; (define vid-clip (clip vid-mp4)) ; length = 139
-;; (check-producer circ-img #:len inf)
-;; (check-producer vid-clip #:len 139)
-;; (check-producer (playlist circ-img vid-clip) #:len inf)
-;; (check-producer (playlist (blank 2) circ-img vid-clip) #:len inf)
+; other examples, section 4 ---------------------------------------------------
+(check-type (color "blue" #:length 2) : (Producer 2))
+(check-type (clip vid-mp4 #:start 100 #:end 103) : (Producer 3))
+(check-type (image circ-png #:length 1) : (Producer 1))
+(check-type (blank 2) : (Producer 2))
+(define circ-img (image circ-png))
+(define vid-clip (clip vid-mp4)) ; length = 139
+(check-type circ-img : Producer)
+(check-type vid-clip : Producer)
+;; TODO
+;(check-type vid-clip : (Producer 139))
+(check-type (playlist circ-img vid-clip) : Producer)
+(check-type (playlist (blank 2) circ-img vid-clip) : Producer)
 
-;; ;; shapes and colors defined after use
-;; (check-producer shapes #:len inf)
-;; (check-producer colors #:len inf)
-;; (check-producer (playlist-append shapes colors) #:len inf)
-;; ;; TODO: reported length is 11??
-;; (check-producer (playlist-append (playlist g1) (playlist blue-clip))); #:len 9)
-;; (define shapes (playlist circ-img vid-clip))
-;; (define colors (playlist (color "red") (color "blue")))
+;; TODO: shapes and colors defined after use
+(define shapes (playlist circ-img vid-clip))
+(define colors (playlist (color "red") (color "blue")))
+(check-type shapes : Producer)
+(check-type colors : Producer)
+(check-type (playlist-append shapes colors) : Producer)
+(check-type (playlist g1) : (Producer 1))
+(check-type (playlist blue-clip) : (Producer 8))
+(check-type (playlist-append (playlist g1) (playlist blue-clip)) : (Producer 9))
 
 ;; (check-producer
 ;;  (playlist (image circ-png #:length 3)
