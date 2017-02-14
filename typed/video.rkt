@@ -1,7 +1,5 @@
 #lang turnstile
-(require (prefix-in v: video)
-         (prefix-in v: video/lib)
-         #;(for-syntax video)) ; not working due to racket/gui
+(require (prefix-in v: video))
 
 (define-syntax (provide/types stx)
   (syntax-parse stx
@@ -17,7 +15,7 @@
  blank color image clip multitrack playlist
  composite-transition fade-transition scale-filter attach-filter
  get-property set-property)
-(provide playlist-append Producer Transition Filter
+(provide Producer Transition Filter
          Int Num Bool String Listof →
          ann)
 
@@ -422,24 +420,6 @@
      #:src #'xs
      #:msg "playlist must interleave producers and transitions, given: ~v"
      #'xs)]])
-
-;; TODO: fixme, not any producer allowed
-(define-typed-syntax playlist-append
-  [(_ p ...) ≫
-   [⊢ p ≫ p- ⇒ (~Producer n)] ...
-   ------------
-   [⊢ (v:#%app v:playlist-append p- ...)
-      ⇒ (Producer- #,(apply + (map (λ (m)
-                                    (define m*
-                                      (syntax-parse m
-                                        [(_ mm) (stx->datum #'mm)]))
-                                     (or (and (number? m*) m*)
-                                         +inf.0)) ; TODO: fixme
-                                   (attribute n))))]]
-  [(_ p ...) ≫
-   [⊢ p ≫ p- ⇐ Producer] ...
-   ------------
-   [⊢ (v:#%app v:playlist-append p- ...) ⇒ Producer]])
 
 ;; transitions ----------------------------------------------------------------
 (define-typed-syntax composite-transition

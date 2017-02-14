@@ -1,7 +1,5 @@
 #lang typed/video
 (require turnstile/examples/tests/rackunit-typechecking)
-;; (require video/lib) ; playlist-append
-;; (require rackunit "test-utils.rkt")
 
 ;; tests from paper examples
 
@@ -75,14 +73,14 @@
 (define colors (playlist (color "red") (color "blue")))
 (check-type shapes : Producer)
 (check-type colors : Producer)
-(check-type (playlist-append shapes colors) : Producer)
+(check-type (playlist shapes colors) : Producer)
 (check-type (playlist g1) : (Producer 1))
 (check-type (playlist blue-clip) : (Producer 8))
 (check-not-type (playlist blue-clip) : (Producer 7))
-(check-type (playlist-append (playlist g1) (playlist blue-clip))
-            : (Producer 9))
-(check-not-type (playlist-append (playlist g1) (playlist blue-clip))
-            : (Producer 8))
+(check-type (playlist g1 blue-clip) : (Producer 9))
+(check-not-type (playlist g1 blue-clip) : (Producer 8))
+(check-type (playlist (playlist g1) (playlist blue-clip)) : (Producer 9))
+(check-not-type (playlist (playlist g1) (playlist blue-clip)) : (Producer 8))
 (check-type
  (playlist (image circ-png #:length 3)
            ;(swipe-transition #:direction 'bottom #:duration 2)
