@@ -12,11 +12,14 @@
          (provide . xs))]))
 
 (provide/types
- λ #%app + / #%datum define begin
+ λ #%app + / #%datum define begin if let let*
+ list car cdr null null?
  blank color image clip multitrack playlist
- composite-transition fade-transition
- get-property)
-(provide playlist-append Producer Transition Int Num String → ann)
+ composite-transition fade-transition scale-filter attach-filter
+ get-property set-property)
+(provide playlist-append Producer Transition Filter
+         Int Num Bool String Listof →
+         ann)
 
 ;; TODO:
 ;; - 2017-02-13: #%module-begin define lifting not working for typed define
@@ -36,7 +39,8 @@
 ; ≫ τ ⊢ ⇒ ⇐
 
 ;; types ----------------------------------------------------------------------
-(define-base-types Transition String Int Num)
+(define-base-types String Int Num Bool Filter)
+(define-type-constructor Listof)
 ;; TODO: support kws in function type
 (define-type-constructor → #:arity > 0)
 (define-internal-type-constructor Producer)
@@ -46,6 +50,13 @@
      (add-orig (mk-type #'(Producer- (v:#%datum . +inf.0))) stx)]
     [(_ n:exact-nonnegative-integer)
      (add-orig (mk-type #'(Producer- n)) stx)]))
+(define-internal-type-constructor Transition)
+(define-syntax (Transition stx)
+  (syntax-parse stx
+    [_:id ; shorthand for inf length
+     (add-orig (mk-type #'(Transition- (v:#%datum . +inf.0))) stx)]
+    [(_ n:exact-nonnegative-integer)
+     (add-orig (mk-type #'(Transition- n)) stx)]))
 
 ;; prims ----------------------------------------------------------------------
 (define-typed-syntax +
@@ -66,6 +77,43 @@
    ----------
    [⊢ (v:#%app v:/ e- ...) ⇒ Int]])
 
+;; lists ----------------------------------------------------------------------
+(define-typed-syntax null
+  [(_ ~! τi:type-ann) ≫
+   --------
+   [⊢ v:null ⇒ (Listof τi.norm)]]
+  ; minimal type inference
+  [_:id ⇐ (~Listof τ) ≫
+   --------
+   [⊢ v:null]])
+(define-typed-syntax (cons e1 e2) ≫
+  [⊢ e1 ≫ e1- ⇒ τ1]
+  [⊢ e2 ≫ e2- ⇐ (Listof τ1)]
+  --------
+  [⊢ (v:#%app v:cons e1- e2-) ⇒ (Listof τ1)])
+(define-typed-syntax (null? e) ≫
+  [⊢ e ≫ e- ⇒ (~Listof _)]
+  --------
+  [⊢ (V:#%app v:null? e-) ⇒ Bool])
+(define-typed-syntax (car e) ≫
+  [⊢ e ≫ e- ⇒ (~Listof τ)]
+  --------
+  [⊢ (v:#%app v:car e-) ⇒ τ])
+(define-typed-syntax (cdr e) ≫
+  [⊢ e ≫ e- ⇒ τ-lst]
+  #:fail-unless (Listof? #'τ-lst)
+  (format "Expected a list type, got: ~a" (type->str #'τ-lst))
+  --------
+  [⊢ (v:#%app v:cdr e-) ⇒ τ-lst])
+(define-typed-syntax list
+  [(_) ≫ --- [≻ null]]
+  [(_ x . rst) ⇐ (~Listof τ) ≫ ; has expected type
+   --------
+   [⊢ (cons (add-expected x τ) (list . rst))]]
+  [(_ x . rst) ≫ ; no expected type
+   --------
+   [≻ (cons x (list . rst))]])
+
 ;; core forms -----------------------------------------------------------------
 (define-typed-syntax #%datum
   [(_ . n:integer) ≫
@@ -77,6 +125,9 @@
   [(_ . s:str) ≫
    ---------
    [⊢ (v:#%datum . s) ⇒ String]]
+  [(_ . b:boolean) ≫
+   ---------
+   [⊢ (v:#%datum . b) ⇒ Bool]]
   [(_ . x) ≫
    --------
    [#:error (type-error #:src #'x #:msg "Unsupported literal: ~v" #'x)]])
@@ -116,6 +167,8 @@
            to 
            props/filtered)))
 
+;; TODO: add length polymorphism
+;; TODO: internal defines
 (define-typed-syntax define
   [(_ x:id (~datum :) τ:type e:expr) ≫
    ;[⊢ e ≫ e- ⇐ τ.norm] ; ok? since it gets lifted to top?
@@ -153,6 +206,57 @@
    [⊢ e ≫ e- ⇒ τ_e]
    --------
    [⊢ (begin- e_unit- ... e-) ⇒ τ_e]])
+
+(begin-for-syntax 
+  (define current-join 
+    (make-parameter 
+      (λ (x y) 
+        (unless (typecheck? x y)
+          (type-error
+            #:src x
+            #:msg  "branches have incompatible types: ~a and ~a" x y))
+        x))))
+
+(define-syntax ⊔
+  (syntax-parser
+    [(⊔ τ1 τ2 ...)
+     (for/fold ([τ ((current-type-eval) #'τ1)])
+               ([τ2 (in-list (stx-map (current-type-eval) #'[τ2 ...]))])
+       ((current-join) τ τ2))]))
+
+(define-typed-syntax if
+  [(_ e_tst e1 e2) ⇐ τ-expected ≫
+   [⊢ e_tst ≫ e_tst- ⇒ _] ; Any non-false value is truthy.
+   [⊢ e1 ≫ e1- ⇐ τ-expected]
+   [⊢ e2 ≫ e2- ⇐ τ-expected]
+   --------
+   [⊢ (v:if e_tst- e1- e2-)]]
+  [(_ e_tst e1 e2) ≫
+   [⊢ e_tst ≫ e_tst- ⇒ _] ; Any non-false value is truthy.
+   [⊢ e1 ≫ e1- ⇒ τ1]
+   [⊢ e2 ≫ e2- ⇒ τ2]
+   --------
+   [⊢ (v:if e_tst- e1- e2-) ⇒ (⊔ τ1 τ2)]])
+
+(define-typed-syntax let
+  [(_ ([x e] ...) e_body ...) ⇐ τ_expected ≫
+   [⊢ e ≫ e- ⇒ : τ_x] ...
+   [[x ≫ x- : τ_x] ... ⊢ (begin e_body ...) ≫ e_body- ⇐ τ_expected]
+   --------
+   [⊢ (v:let ([x- e-] ...) e_body-)]]
+  [(_ ([x e] ...) e_body ...) ≫
+   [⊢ e ≫ e- ⇒ : τ_x] ...
+   [[x ≫ x- : τ_x] ... ⊢ (begin e_body ...) ≫ e_body- ⇒ τ_body]
+   --------
+   [⊢ (v:let ([x- e-] ...) e_body-) ⇒ τ_body]])
+
+(define-typed-syntax let*
+  [(_ () e_body ...) ≫
+   --------
+   [≻ (begin e_body ...)]]
+  [(_ ([x e] [x_rst e_rst] ...) e_body ...) ≫
+   --------
+   [≻ (let ([x e]) (let* ([x_rst e_rst] ...) e_body ...))]])
 
 ;; basic producers ------------------------------------------------------------
 (define-typed-syntax blank
@@ -220,8 +324,9 @@
    [⊢ n ≫ n- ⇐ Int]
    [⊢ m ≫ m- ⇐ Int]
    --------
-   [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ (Producer #,(- (stx->datum #'m)
-                                                               (stx->datum #'n)))]]
+   [⊢ (v:#%app v:clip f- #:start n- #:end m-)
+      ⇒ (Producer #,(- (stx->datum #'m)
+                       (stx->datum #'n)))]]
   [(_ f #:start n #:end m) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ n ≫ n- ⇐ Int]
@@ -245,28 +350,78 @@
    [⊢ n ≫ n- ⇐ Int]
    ------------
    [⊢ (v:#%app v:multitrack p- ... #:length n-) ⇒ Producer]]
+  [(_ (~and p (~not _:keyword)) ... #:transitions trans) ≫
+   [⊢ p ≫ p- ⇒ (~Producer _)] ...
+   [⊢ trans ≫ trans- ⇒ (~Listof (~Transition _))]
+   ------------
+   [⊢ (v:#%app v:multitrack p- ... #:transitions trans-) ⇒ Producer]]
   [(_ p ...) ≫
    [⊢ p ≫ p- ⇒ ty] ...
    #:when (stx-andmap (λ (t) (or (Transition? t) (Producer? t))) #'(ty ...))
    ------------
    [⊢ (v:#%app v:multitrack p- ...) ⇒ Producer]])
-   
+
+;; TODO: check interleaving of producers and transitions
+;; TODO: check that stitching lengths is ok
+;; eg, this is bad (playlist (blank 1) (fade-transition #:len 2) (blank 1))
 (define-typed-syntax playlist
-  [(_ p ...) ≫
+  [(_ p ... #:transitions trans) ≫ ; producers + transitions
+   [⊢ p ≫ p- ⇒ (~Producer n)] ...
+   ;; TODO: subtract transitions?
+   [⊢ trans ≫ trans- ⇒ (~Listof (~Transition _))]
+   ------------
+   [⊢ (v:#%app v:playlist p- ... #:transitions trans-)
+      ⇒ #,(mk-type
+           #`(Producer-
+              #,(apply + (map (λ (x)
+                                (define x*
+                                  (syntax-parse x
+                                    [(_ y) (stx->datum #'y)]))
+                                (or (and (number? x*) x*)
+                                    +inf.0)) ; TODO: fixme?
+                              (attribute n)))))]]
+  [(_ p ...) ≫ ; producers only
    [⊢ p ≫ p- ⇒ (~Producer n)] ...
    ------------
    [⊢ (v:#%app v:playlist p- ...)
-      ⇒ (Producer- #,(apply + (map (λ (m)
-                                    (define m*
-                                      (syntax-parse m
-                                        [(_ mm) (stx->datum #'mm)]))
-                                     (or (and (number? m*) m*)
-                                         +inf.0)) ; TODO: fixme
-                                   (attribute n))))]]
-  [(_ p ...) ≫
-   [⊢ p ≫ p- ⇐ Producer] ...
+      ⇒ (Producer-
+         #,(apply + (map (λ (m)
+                           (define m*
+                             (syntax-parse m
+                               [(_ mm) (stx->datum #'mm)]))
+                           (or (and (number? m*) m*)
+                               +inf.0)) ; TODO: fixme
+                         (attribute n))))]]
+  [(_ p1 p/t ... pn) ≫ ; producers + transitions
+   [⊢ p1 ≫ p1- ⇒ (~Producer n1)]
+   [⊢ pn ≫ pn- ⇒ (~Producer nn)]
+   ;[⊢ p/t ≫ p/t- ⇒ (~or (~Producer n) (~Transition m))] ... ; doesnt work
+   [⊢ p/t ≫ p/t- ⇒ P-or-T] ...
+   #:with ((~or (~Producer n) (~Transition m)) ...) #'(P-or-T ...)
    ------------
-   [⊢ (v:#%app v:playlist p- ...) ⇒ Producer]])
+   [⊢ (v:#%app v:playlist p1- p/t- ... pn-)
+      ⇒ (Producer-
+         #,(- (apply + (map (λ (x)
+                              (define x*
+                                (syntax-parse x
+                                  [(_ y) (stx->datum #'y)]))
+                              (or (and (number? x*) x*)
+                                  +inf.0)) ; TODO: fixme?
+                            (cons #'n1 (cons #'nn (attribute n)))))
+              (apply + (map (λ (x)
+                              (define x*
+                                (syntax-parse x
+                                  [(_ y) (stx->datum #'y)]))
+                              (or (and (number? x*) x*)
+                                  +inf.0)) ; TODO: fixme?
+                            (attribute m)))))]]
+  [xs ≫
+   ------------
+   [#:error
+    (type-error
+     #:src #'xs
+     #:msg "playlist must interleave producers and transitions, given: ~v"
+     #'xs)]])
 
 ;; TODO: fixme, not any producer allowed
 (define-typed-syntax playlist-append
@@ -294,14 +449,43 @@
    [⊢ w ≫ w- ⇐ Num]
    [⊢ h ≫ h- ⇐ Num]
    --------
-   [⊢ (v:#%app v:composite-transition x- y- w- h-) ⇒ Transition]])
+   [⊢ (v:#%app v:composite-transition x- y- w- h-) ⇒ Transition]]
+  [(_ x y w h #:top t #:bottom b) ≫
+   [⊢ x ≫ x- ⇐ Num]
+   [⊢ y ≫ y- ⇐ Num]
+   [⊢ w ≫ w- ⇐ Num]
+   [⊢ h ≫ h- ⇐ Num]
+   [⊢ t ≫ t- ⇐ Producer]
+   [⊢ b ≫ b- ⇐ Producer]
+   --------
+   [⊢ (v:#%app v:composite-transition x- y- w- h- #:top t- #:bottom b-)
+      ⇒ Transition]])
 
-;; TODO: make Transition also parameteric in length
 (define-typed-syntax fade-transition
+  [(_ #:length n:exact-nonnegative-integer) ≫
+   [⊢ n ≫ n- ⇐ Int]
+   --------
+   [⊢ (v:#%app v:fade-transition #:length n-) ⇒ (Transition n)]]
   [(_ #:length n) ≫
    [⊢ n ≫ n- ⇐ Int]
    --------
    [⊢ (v:#%app v:fade-transition #:length n-) ⇒ Transition]])
+
+;; filters
+(define-typed-syntax scale-filter
+  [(_ p w h) ≫
+   [⊢ w ≫ w- ⇐ Int]
+   [⊢ h ≫ h- ⇐ Int]
+   [⊢ p ≫ p- ⇒ (~and ty_out (~Producer _))]
+   -----------
+   [⊢ (v:#%app v:scale-filter p- w- h-) ⇒ ty_out]])
+   
+(define-typed-syntax attach-filter
+  [(_ p f ...) ≫
+   [⊢ p ≫ p- ⇒ (~Producer _)]
+   [⊢ f ≫ f- ⇐ Filter] ...
+   -----------
+   [⊢ (v:#%app v:attach-filter p- f- ...) ⇒ Producer]])
 
 ;; props ----------------------------------------------------------------------
 (define-typed-syntax get-property
@@ -314,4 +498,17 @@
    [⊢ p ≫ p- ⇐ Producer]
    [⊢ k ≫ k- ⇐ String]
    --------
-   [⊢ (v:#%app v:get-property p- k- 'int) ⇒ Int]])
+   [⊢ (v:#%app v:get-property p- k- 'int) ⇒ Int]]
+  [(_ p k (_ (~datum bool))) ≫ ; TODO: a hack, how does this work?
+   [⊢ p ≫ p- ⇐ Producer]
+   [⊢ k ≫ k- ⇐ String]
+   --------
+   [⊢ (v:#%app v:get-property p- k-) ⇒ Bool]])
+
+(define-typed-syntax set-property
+  [(_ p k v) ≫
+   [⊢ p ≫ p- ⇒ (~and ty_out (~Producer _))]
+   [⊢ k ≫ k- ⇐ String]
+   [⊢ v ≫ v- ⇒ _]
+   --------
+   [⊢ (v:#%app v:set-property p- k- v-) ⇒ ty_out]])

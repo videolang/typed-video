@@ -78,137 +78,184 @@
 (check-type (playlist-append shapes colors) : Producer)
 (check-type (playlist g1) : (Producer 1))
 (check-type (playlist blue-clip) : (Producer 8))
-(check-type (playlist-append (playlist g1) (playlist blue-clip)) : (Producer 9))
+(check-not-type (playlist blue-clip) : (Producer 7))
+(check-type (playlist-append (playlist g1) (playlist blue-clip))
+            : (Producer 9))
+(check-not-type (playlist-append (playlist g1) (playlist blue-clip))
+            : (Producer 8))
+(check-type
+ (playlist (image circ-png #:length 3)
+           ;(swipe-transition #:direction 'bottom #:duration 2)
+           (fade-transition #:length 2)
+           (clip vid-mp4 #:length 3))
+: (Producer 4))
+(check-not-type
+ (playlist (image circ-png #:length 3)
+           ;(swipe-transition #:direction 'bottom #:duration 2)
+           (fade-transition #:length 2)
+           (clip vid-mp4 #:length 3))
+: (Producer 3))
 
-;; (check-producer
-;;  (playlist (image circ-png #:length 3)
-;;            ;(swipe-transition #:direction 'bottom #:duration 2)
-;;            (fade-transition #:length 2)
-;;            (clip vid-mp4 #:length 3)))
-;; ; #:len 4) ; expect 4, currently 6
+(check-type
+ (playlist (image circ-png #:length 3)
+           (clip vid-mp4 #:length 3))
+ : (Producer 6))
 
-;; (check-producer
-;;  (playlist (image circ-png #:length 3)
-;;            (clip vid-mp4 #:length 3)))
-;; ; #:len 6) ; expect 6, currently 8
+(check-type
+ (playlist
+  (image circ-png #:length 2)
+  (fade-transition #:length 1)
+  (color "blue" #:length 2)
+  (fade-transition #:length 2)
+  (clip vid-mp4 #:start 0 #:end 2))
+ : (Producer 3))
+(check-not-type
+ (playlist
+  (image circ-png #:length 2)
+  (fade-transition #:length 1)
+  (color "blue" #:length 2)
+  (fade-transition #:length 2)
+  (clip vid-mp4 #:start 0 #:end 2))
+ : (Producer 2))
 
-;; (check-producer
-;;  (playlist
-;;   (image circ-png #:length 2)
-;;   (fade-transition #:length 1)
-;;   (color "blue" #:length 2)
-;;   (fade-transition #:length 2)
-;;   (clip vid-mp4 #:start 0 #:end 2))
-;;  #:len 5)
+;; multitracks
+(check-type
+ (multitrack
+  (clip vid-mp4)
+  (composite-transition 0 0 3/4 3/4)
+  (image circ-png))
+ : Producer)
 
-;; ;; multitracks
-;; (check-producer
-;;  (multitrack
-;;   (clip vid-mp4)
-;;   (composite-transition 0 0 3/4 3/4)
-;;   (image circ-png))
-;;  #:len inf)
+(check-type
+ (multitrack
+  (clip vid-mp4)
+  (composite-transition 0 0 1/2 1/2)
+  (multitrack
+   (image circ-png)
+   (composite-transition 0 1/2 1/2 1/2)
+   (color "green")))
+ : Producer)
 
-;; (check-producer
-;;  (multitrack
-;;   (clip vid-mp4)
-;;   (composite-transition 0 0 1/2 1/2)
-;;   (multitrack
-;;    (image circ-png)
-;;    (composite-transition 0 1/2 1/2 1/2)
-;;    (color "green")))
-;;  #:len inf)
+;; defines should be after use?
+(define bg (clip vid-mp4))
+(define circ (image circ-png))
+(define green-color (color "green"))
+(define blue-color (color "blue"))
+(check-type
+ (composite-transition 0 0 1/2 1/2 #:top circ #:bottom bg)
+ : Transition)
+(check-type
+ (composite-transition 1/2 0 1/2 1/2 #:top blue-color #:bottom bg)
+ : Transition)
+(check-type
+ (composite-transition 0 1/2 1/2 1/2 #:top green-color #:bottom bg)
+ : Transition)
+(check-type (list 1) : (Listof Int))
+(check-type
+ (list (composite-transition 0 0 1/2 1/2 #:top circ #:bottom bg)
+       (composite-transition 1/2 0 1/2 1/2 #:top blue-color #:bottom bg)
+       (composite-transition 0 1/2 1/2 1/2 #:top green-color #:bottom bg))
+ : (Listof Transition))
+(check-type
+ (multitrack
+  circ bg blue-color green-color
+  #:transitions
+  (list (composite-transition 0 0 1/2 1/2 #:top circ #:bottom bg)
+        (composite-transition 1/2 0 1/2 1/2 #:top blue-color #:bottom bg)
+        (composite-transition 0 1/2 1/2 1/2 #:top green-color #:bottom bg)))
+ : Producer)
 
-;; ;; defines are after use
-;; (check-producer
-;;  (multitrack
-;;   circ bg green-color
-;;   #:transitions
-;;   (list (composite-transition 0 0 1/2 1/2 #:top circ #:bottom bg)
-;;         (composite-transition 1/2 0 1/2 1/2 #:top blue-color #:bottom bg)
-;;         (composite-transition 0 1/2 1/2 1/2 #:top green-color #:bottom bg))))
-;; (define bg (clip vid-mp4))
-;; (define circ (image circ-png))
-;; (define green-color (color "green"))
-;; (define blue-color (color "blue"))
+(define swiping-playlist
+  (λ ([a : Producer] [b : Producer])
+    (playlist a b
+              #:transitions
+              (list
+               (composite-transition 0 0 1/2 1/2
+                                     #:top a
+                                     #:bottom b)))))
+(check-type (swiping-playlist (image circ-png) (color "green")) : Producer)
+(check-type (swiping-playlist (color "green") (clip vid-mp4)) : Producer)
 
-;; (check-producer? (swiping-playlist (image circ-png) (color "green")))
-;; (check-producer? (swiping-playlist (color "green") (clip vid-mp4)))
-;; (define swiping-playlist
-;;   (λ (a b)
-;;     (playlist a b
-;;               #:transitions
-;;               (list
-;;                (composite-transition 0 0 1/2 1/2
-;;                                      #:top a
-;;                                      #:bottom b)))))
 
-;; ;; filters
-;; (check-producer? (scale-filter (image circ-png) 1 3))
+;; filters
+(check-type (scale-filter (image circ-png) 1 3) : Producer)
 
-;; ;; props
-;; (check-producer?
-;;  (multitrack
-;;   rect-clip
-;;   (composite-transition
-;;    0
-;;    (if (get-property rect-clip "bottom?") 1/2 0)
-;;    1/2 1/2)
-;;   (image circ-png)))
-;; (define rect-clip (set-property (clip vid-mp4) "bottom?" #t))
-;; (check-equal? (get-property rect-clip "bottom?") #t)
+;; props
+(define rect-clip (set-property (clip vid-mp4) "bottom?" #t))
+;; TODO: how to do this?
+(check-type (get-property rect-clip "bottom?" 'bool) : Bool -> #t)
+(check-type
+ (multitrack
+  rect-clip
+  (composite-transition
+   0
+   (if (get-property rect-clip "bottom?" 'bool) 1/2 0)
+   1/2 1/2)
+  (image circ-png))
+ : Producer)
 
-;; ;(include-video "green.vid")
+;(include-video "green.vid") ; TODO
 
-;; ;; racketcon
-;; (define (make-speaker-slides-composite sp sl)
-;;   (multitrack sp sl logo bg
-;;               #:transitions
-;;               (list (composite-transition 0 0 3/10 1 #:top sp #:bottom bg)
-;;                     (composite-transition 0 1/2 3/10 1 #:top logo #:bottom bg)
-;;                     (composite-transition 1/3 0 2/3 1 #:top sl #:bottom bg))))
-;; (define logo (image circ-png))
-;; (define sp (blank 100))
-;; (define sl (blank 100))
-;; ;(define bg (color "blue")) ; already defined
+;; racketcon
+(define logo (image circ-png))
+(define sp (blank 100))
+(define sl (blank 100))
+;(define bg (color "blue")) ; already defined
+(define (make-speaker-slides-composite [sp : Producer] [sl : Producer] → Producer)
+  (multitrack sp sl logo bg
+              #:transitions
+              (list (composite-transition 0 0 3/10 1 #:top sp #:bottom bg)
+                    (composite-transition 0 1/2 3/10 1 #:top logo #:bottom bg)
+                    (composite-transition 1/3 0 2/3 1 #:top sl #:bottom bg))))
 
-;; ;; TODO: should this work? (defines at end)
-;; #;(define (make-talk-video main-talk)
-;;   ;; defines are after playlist
-;;   (playlist begin-clip
-;;             (fade-transition 200)
-;;             main-talk
-;;             (fade-transition 200)
-;;             end-clip)
-;;   (define begin-clip (image circ-png #:length 500))
-;;   (define end-clip (image circ-png #:length 500)))
+(check-type make-speaker-slides-composite : (→ Producer Producer Producer))
+;; TODO: should this work? (defines at end)
+#;(define (make-talk-video main-talk)
+  ;; defines are after playlist
+  (playlist begin-clip
+            (fade-transition 200)
+            main-talk
+            (fade-transition 200)
+            end-clip)
+  (define begin-clip (image circ-png #:length 500))
+  (define end-clip (image circ-png #:length 500)))
 
-;; (define (make-talk-video main-talk)
-;;   ;; defines should be after playlist?
-;;   (define begin-clip (image circ-png #:length 500))
-;;   (define end-clip (image circ-png #:length 500))
-;;   (playlist begin-clip
-;;             (fade-transition #:length 200)
-;;             main-talk
-;;             (fade-transition #:length 200)
-;;             end-clip))
+(define (make-talk-video [main-talk : Producer] → Producer)
+  ;; defines should be after playlist?
+  ;; TODO: allow local defines
+  ;; (define begin-clip (image circ-png #:length 500))
+  ;; (define end-clip (image circ-png #:length 500))
+  (let ([begin-clip (image circ-png #:length 500)]
+        [end-clip (image circ-png #:length 500)])
+    (playlist begin-clip
+              (fade-transition #:length 200)
+              main-talk
+              (fade-transition #:length 200)
+              end-clip)))
+(check-type make-talk-video : (→ Producer Producer))
 
-;; ; TODO: add filters
-;; (define (attach-audio v a o)
-;;   (define cleaned-audio
-;;     (attach-filter
-;;      a
-;;      #;(project-filter #:end offset)
-;;      #;(envelope-filter 50 #:direction 'in)
-;;      #;(envelope-filter 50 #:direction 'out)))
-;;   (multitrack v cleaned-audio #:length (get-property v "length" 'int)))
+; TODO: add filters
+(define (attach-audio [v : Producer][a : Producer][off : Int] → Producer)
+  #;(define cleaned-audio
+    (attach-filter
+     a
+     #;(project-filter #:end off)
+     #;(envelope-filter 50 #:direction 'in)
+     #;(envelope-filter 50 #:direction 'out)))
+  (let ([cleaned-audio (attach-filter a)])
+    (multitrack v cleaned-audio #:length (get-property v "length" 'int))))
+(check-type attach-audio : (→ Producer Producer Int Producer))
 
-;; ;; TODO: use define*
-;; (define (make-conf-talk sp sl a o)
-;;   (define X (make-speaker-slides-composite sp sl))
-;;   (define Y (make-talk-video X))
-;;   (define v (make-talk-video Y))
-;;   (attach-audio v a o))
+;; TODO: use define*
+(define (make-conf-talk
+         [sp : Producer][sl : Producer][a : Producer][off : Int] → Producer)
+  ;; (define X (make-speaker-slides-composite sp sl))
+  ;; (define Y (make-talk-video X))
+  ;; (define v (make-talk-video Y))
+  (let* ([X (make-speaker-slides-composite sp sl)]
+         [Y (make-talk-video X)]
+         [v (make-talk-video Y)])
+    (attach-audio v a off)))
+(check-type make-conf-talk : (→ Producer Producer Producer Int Producer))
 
-;; (check-producer?
-;;  (make-conf-talk (blank 100) (blank 100) (blank 100) 0))
+(check-type (make-conf-talk (blank 100) (blank 100) (blank 100) 0) : Producer)
