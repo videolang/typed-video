@@ -6,8 +6,6 @@ typed/video
 #:wrapper1 (λ (x) (list* 'vid 'values '() (x)))
 #:info make-info
 
-(require scribble/reader)
-
 (define (make-info key default use-default)
   (case key
     [(drracket:toolbar-buttons)
