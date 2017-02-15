@@ -1,4 +1,5 @@
 #lang turnstile
+(require (for-syntax "stx-utils.rkt"))
 (require (prefix-in v: video))
 
 (define-syntax (provide/types stx)
@@ -387,27 +388,11 @@
    [⊢ trans ≫ trans- ⇒ (~Listof (~Transition _))]
    ------------
    [⊢ (v:#%app v:playlist p- ... #:transitions trans-)
-      ⇒ #,(mk-type
-           #`(Producer-
-              #,(apply + (map (λ (x)
-                                (define x*
-                                  (syntax-parse x
-                                    [(_ y) (stx->datum #'y)]))
-                                (or (and (number? x*) x*)
-                                    +inf.0)) ; TODO: fixme?
-                              (attribute n)))))]]
+      ⇒ #,(mk-type #`(Producer- #,(stx+ (attribute n))))]]
   [(_ p ...) ≫ ; producers only
    [⊢ p ≫ p- ⇒ (~Producer n)] ...
    ------------
-   [⊢ (v:#%app v:playlist p- ...)
-      ⇒ (Producer-
-         #,(apply + (map (λ (m)
-                           (define m*
-                             (syntax-parse m
-                               [(_ mm) (stx->datum #'mm)]))
-                           (or (and (number? m*) m*)
-                               +inf.0)) ; TODO: fixme
-                         (attribute n))))]]
+   [⊢ (v:#%app v:playlist p- ...) ⇒ (Producer- #,(stx+ (attribute n)))]]
   [(_ p1 p/t ... pn) ≫ ; producers + transitions
    [⊢ p1 ≫ p1- ⇒ (~Producer n1)]
    [⊢ pn ≫ pn- ⇒ (~Producer nn)]
@@ -416,21 +401,8 @@
    #:with ((~or (~Producer n) (~Transition m)) ...) #'(P-or-T ...)
    ------------
    [⊢ (v:#%app v:playlist p1- p/t- ... pn-)
-      ⇒ (Producer-
-         #,(- (apply + (map (λ (x)
-                              (define x*
-                                (syntax-parse x
-                                  [(_ y) (stx->datum #'y)]))
-                              (or (and (number? x*) x*)
-                                  +inf.0)) ; TODO: fixme?
-                            (cons #'n1 (cons #'nn (attribute n)))))
-              (apply + (map (λ (x)
-                              (define x*
-                                (syntax-parse x
-                                  [(_ y) (stx->datum #'y)]))
-                              (or (and (number? x*) x*)
-                                  +inf.0)) ; TODO: fixme?
-                            (attribute m)))))]]
+      ⇒ (Producer- #,(- (stx+ (cons #'n1 (cons #'nn (attribute n))))
+                        (stx+ (attribute m))))]]
   [xs ≫
    ------------
    [#:error

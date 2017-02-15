@@ -40,6 +40,7 @@
 ;; ;(check-transition? (swipe-transition #:direction 'up #:length 2)) ; TODO
 (check-type (fade-transition #:length 2) : Transition)
 
+;; old fig1
 (check-type
  (multitrack
   (image circ-png #:length (/ (blue-length) 8))
@@ -60,21 +61,28 @@
 (check-type (clip "vid.mp4") : (Producer 139))
 (check-type (clip vid-mp4 #:length 3) : (Producer 3))
 
-; other examples, section 4 ---------------------------------------------------
 (check-type (color "blue" #:length 2) : (Producer 2))
 (check-type (clip vid-mp4 #:start 100 #:end 103) : (Producer 4))
 (check-not-type (clip vid-mp4 #:start 100 #:end 103) : (Producer 3))
 (check-type (image circ-png #:length 1) : (Producer 1))
 (check-type (blank 2) : (Producer 2))
 (check-not-type (blank 2) : (Producer 1))
+
+;; sec 4.2 playlists ----------------------------------------------------------
 (define circ-img (image circ-png))
-(define vid-clip (clip vid-mp4)) ; length = 139
+(define vid-clip (clip "vid.mp4")) ; length = 139
 (check-type circ-img : Producer)
 (check-type vid-clip : Producer)
-;; TODO
-;(check-type vid-clip : (Producer 139))
+(check-type vid-clip : (Producer 139))
+(check-not-type vid-clip : (Producer 138))
 (check-type (playlist circ-img vid-clip) : Producer)
 (check-type (playlist (blank 2) circ-img vid-clip) : Producer)
+
+(define circ3 (image circ-png #:length 3))
+(check-type circ3 : (Producer 3))
+(check-type (playlist circ3 vid-clip) : (Producer 142))
+(check-not-type (playlist circ3 vid-clip) : (Producer 141))
+(check-type (playlist (blank 3) circ3 vid-clip) : (Producer 145))
 
 ;; TODO: shapes and colors defined after use
 (define shapes (playlist circ-img vid-clip))
