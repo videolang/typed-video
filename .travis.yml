@@ -24,6 +24,9 @@ before_install:
   - export DISPLAY=:99.0
   - sh -e /etc/init.d/xvfb start
   - sleep 3 # give xvfb some time to start
+  # install (untyped) racket-video
+  - git clone --branch=for-typed https://github.com/stchang/racket-video.git ../video
+  - raco pkg install --auto ../video -n video
   
 install:
  - raco pkg install --auto
