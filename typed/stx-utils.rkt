@@ -6,3 +6,5 @@
   (apply + (map ; extract quoted numbers
             (syntax-parser [(_ x) (stx->datum #'x)])
             (stx->list ns))))
+
+(define stx-e syntax-e)

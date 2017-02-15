@@ -23,18 +23,6 @@
 ;; TODO:
 ;; - 2017-02-13: #%module-begin define lifting not working for typed define
 
-;; override typecheck-relation to consider numbers
-(begin-for-syntax
-  (define old-type-rel (current-typecheck-relation))
-  (define (new-type-rel t1 t2)
-    (define t1* (stx->datum t1))
-    (define t2* (stx->datum t2))
-    (or (and (number? t1*) (number? t2*) (<= t1* t2*))
-        (and (Int? t1) (Num? t2))
-        (old-type-rel t1 t2)))
-  (current-type=? new-type-rel)
-  (current-typecheck-relation new-type-rel))
-
 ; ≫ τ ⊢ ⇒ ⇐
 
 ;; types ----------------------------------------------------------------------
@@ -53,9 +41,29 @@
 (define-syntax (Transition stx)
   (syntax-parse stx
     [_:id ; shorthand for inf length
-     (add-orig (mk-type #'(Transition- (v:#%datum . +inf.0))) stx)]
+     (add-orig (mk-type #'(Transition- (v:#%datum . 0))) stx)]
     [(_ n:exact-nonnegative-integer)
      (add-orig (mk-type #'(Transition- n)) stx)]))
+
+;; override typecheck-relation to consider numbers
+(begin-for-syntax
+  (define old-type-rel (current-typecheck-relation))
+  ;; new-type-rel is subtyping relation
+  (define (new-type-rel t1 t2)
+    ;; (printf "t1 = ~a\n" (stx->datum t1))
+    ;; (printf "t2 = ~a\n" (stx->datum t2))
+    (or
+     ((current-type=?) t1 t2)
+     (and (Int? t1) (Num? t2))
+     (syntax-parse (list t1 t2)
+      [((~Listof x) (~Listof y))         (typecheck? #'x #'y)]
+      [((~Producer n) (~Producer m))     (typecheck? #'n #'m)]
+      [((~Transition n) (~Transition m)) (typecheck? #'m #'n)] ; flip
+      [((~→ i ... o) (~→ j ... p))       (typechecks? #'(j ... o) #'(i ... p))]
+      [(((~literal quote) n:number) ((~literal quote) m:number))
+       (<= (stx-e #'n) (stx-e #'m))]
+      [_ #f])))
+  (current-typecheck-relation new-type-rel))
 
 ;; prims ----------------------------------------------------------------------
 (define-typed-syntax +
