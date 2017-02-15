@@ -26,7 +26,7 @@ before_install:
   - sleep 3 # give xvfb some time to start
   # install (untyped) racket-video
   - git clone --branch=for-typed https://github.com/stchang/racket-video.git ../video
-  - raco pkg install --auto ../video -n video
+  - raco pkg install --auto -n video ../video
   
 install:
  - raco pkg install --auto
