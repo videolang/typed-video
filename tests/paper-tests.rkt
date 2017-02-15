@@ -4,15 +4,14 @@
 ;; tests from paper examples
 
 ;; TODO:
-;; 2017-02-10: "length" properly not working? #:len testing disabled
 ;; 2017-02-07: swipe transition not working
 
 (define circ-png "circ.png")
-(define vid-mp4 "vid.mp4")
+(define vid-mp4 "vid.mp4") ; length = 139
 (check-type circ-png : String)
 (check-type vid-mp4 : String)
 
-;; fig1 -----------------------------------------------------------------------
+;; sec4.1 producers -----------------------------------------------------------
 
 (define g (color "green"))
 (define g1 (color "green" #:length 1))
@@ -21,15 +20,20 @@
 (check-type g1 : (Producer 1))
 (check-type g1 : (Producer 2))
 (check-type g1 : Producer)
+(check-not-type g1 : (Producer 0))
+
+(check-type (color "blue" #:length 3) : (Producer 3))
 
 (define blue-clip (color "blue" #:length 8))
 (check-type blue-clip : (Producer 8))
 
 ;; TODO: define-lifting not working for typed define
-(define (blue-length -> Int) (get-property blue-clip "length" 'int))
+(define (blue-length -> Int) (producer-length blue-clip))
 (check-type (blue-length) : Int)
 
 ;; TODO: eval-syntax length arg?
+(check-type (image circ-png #:length 3) : (Producer 3))
+(check-type (image circ-png #:length (+ 1 2)) : (Producer 3))
 (check-type (image circ-png #:length (/ (blue-length) 8)) : Producer)
 
 (check-type (composite-transition 0 0 3/4 3/4) : Transition)
@@ -52,13 +56,17 @@
   #:length 5)
  : (Producer 5))
 
+(check-type (clip "vid.mp4") : Producer)
+(check-type (clip "vid.mp4") : (Producer 139))
 (check-type (clip vid-mp4 #:length 3) : (Producer 3))
 
 ; other examples, section 4 ---------------------------------------------------
 (check-type (color "blue" #:length 2) : (Producer 2))
-(check-type (clip vid-mp4 #:start 100 #:end 103) : (Producer 3))
+(check-type (clip vid-mp4 #:start 100 #:end 103) : (Producer 4))
+(check-not-type (clip vid-mp4 #:start 100 #:end 103) : (Producer 3))
 (check-type (image circ-png #:length 1) : (Producer 1))
 (check-type (blank 2) : (Producer 2))
+(check-not-type (blank 2) : (Producer 1))
 (define circ-img (image circ-png))
 (define vid-clip (clip vid-mp4)) ; length = 139
 (check-type circ-img : Producer)
@@ -106,7 +114,7 @@
   (color "blue" #:length 2)
   (fade-transition #:length 2)
   (clip vid-mp4 #:start 0 #:end 2))
- : (Producer 3))
+ : (Producer 4))
 (check-not-type
  (playlist
   (image circ-png #:length 2)
@@ -114,7 +122,7 @@
   (color "blue" #:length 2)
   (fade-transition #:length 2)
   (clip vid-mp4 #:start 0 #:end 2))
- : (Producer 2))
+ : (Producer 3))
 
 ;; multitracks
 (check-type
@@ -241,7 +249,7 @@
      #;(envelope-filter 50 #:direction 'in)
      #;(envelope-filter 50 #:direction 'out)))
   (let ([cleaned-audio (attach-filter a)])
-    (multitrack v cleaned-audio #:length (get-property v "length" 'int))))
+    (multitrack v cleaned-audio #:length (producer-length v))))
 (check-type attach-audio : (→ Producer Producer Int Producer))
 
 ;; TODO: use define*

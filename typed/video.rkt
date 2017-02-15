@@ -14,7 +14,7 @@
  list car cdr null null?
  blank color image clip multitrack playlist
  composite-transition fade-transition scale-filter attach-filter
- get-property set-property)
+ get-property set-property producer-length)
 (provide Producer Transition Filter
          Int Num Bool String Listof →
          ann)
@@ -298,11 +298,27 @@
   [(_ f #:length n) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ n ≫ n- ⇐ Int]
+   #:do [(define len
+           (with-handlers ([exn? (λ _ #f)])
+             (eval (syntax->datum #'n) (make-base-namespace))))]
    --------
-   [⊢ (v:#%app v:image f- #:length n-) ⇒ Producer]])
+   [⊢ (v:#%app v:image f- #:length n-) ⇒ #,(or (and len #`(Producer #,len))
+                                               #'Producer)]])
 
 ;; TODO: read clip at compile time
 (define-typed-syntax clip
+  [(_ f:str) ≫ ; literal arg
+   [⊢ f ≫ f- ⇐ String]
+   #:do [(define len
+           (with-handlers ([exn? (λ _ #f)])
+             (parameterize ([current-namespace (make-base-namespace)])
+               (namespace-require 'video)
+               (eval `(get-property
+                       (clip ,(syntax->datum #'f))
+                       "length" 'int)))))]
+   --------
+   [⊢ (v:#%app v:clip f-) ⇒ #,(or (and len #`(Producer #,len))
+                                  #'Producer)]]
   [(_ f) ≫
    [⊢ f ≫ f- ⇐ String]
    --------
@@ -317,14 +333,15 @@
    [⊢ n ≫ n- ⇐ Int]
    --------
    [⊢ (v:#%app v:clip f- #:length n-) ⇒ Producer]]
-  [(_ f #:start n:exact-nonnegative-integer #:end m:exact-nonnegative-integer) ≫
+  [(_ f #:start n:exact-nonnegative-integer
+        #:end m:exact-nonnegative-integer) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ n ≫ n- ⇐ Int]
    [⊢ m ≫ m- ⇐ Int]
    --------
    [⊢ (v:#%app v:clip f- #:start n- #:end m-)
-      ⇒ (Producer #,(- (stx->datum #'m)
-                       (stx->datum #'n)))]]
+      ⇒ (Producer #,(add1 (- (stx->datum #'m)
+                             (stx->datum #'n))))]]
   [(_ f #:start n #:end m) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ n ≫ n- ⇐ Int]
@@ -332,6 +349,7 @@
    --------
    [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ Producer]])
 
+(define-primop producer-length v:producer-length : (→ Producer Int))
 
 ;; playlist combinators -------------------------------------------------------
 ;; TODO: should be interleaved Transition and Producer?
