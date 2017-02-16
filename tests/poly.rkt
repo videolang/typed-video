@@ -32,4 +32,8 @@
 (check-type (f5 (blank 10) (blank 10)) : (Producer 10))
 (check-type (f5 (blank 10) (blank 20)) : (Producer 10)) ; longer ok
 (typecheck-fail (f5 (blank 10) (blank 9)) ; shorter bad
- #:with-msg "expected \\(Producer n\\), given \\(Producer 9\\)")
+ #:with-msg "expected \\(Producer 10\\), given \\(Producer 9\\)")
+
+;; cant do this yet
+#;(define (f6 [n : Int] [p : (Producer n)] -> (Producer n))
+  p)

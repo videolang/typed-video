@@ -295,3 +295,11 @@
 (check-type
  (make-conf-talk (blank 1000) (blank 1000) (color "green") 0)
  : (Producer 1600))
+
+(check-type (cut-producer (blank 100) #:start 10 #:end 20) : (Producer 11))
+
+;; start too high
+(typecheck-fail (cut-producer (blank 9) #:start 10 #:end 20)
+ #:with-msg "cut\\-producer\\: type mismatch\\: expected \\(Producer 10\\), given \\(Producer 9\\)")
+(typecheck-fail (cut-producer (blank 9) #:start 8 #:end 20)
+ #:with-msg "cut\\-producer\\: type mismatch\\: expected \\(Producer 13\\), given \\(Producer 9\\)")

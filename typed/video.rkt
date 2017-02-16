@@ -14,7 +14,7 @@
  λ #%app + - / min max #%datum define begin if let let* displayln
  list car cdr null null?
  blank color image clip multitrack playlist
- composite-transition fade-transition scale-filter attach-filter
+ composite-transition fade-transition scale-filter attach-filter cut-producer
  get-property set-property producer-length)
 (provide AnyProducer Producer Transition Filter
          Int Num Bool String Listof →
@@ -144,11 +144,12 @@
        (stx-min #'ns)]
       [(~Producer n)
       ;; #:do [(printf "Producer with: ~a\n" (stx->datum #'n))
-      ;;       (displayln (get-orig this-syntax))]
-       (pass-orig
-        (mk-type
-         (expand/df #`(Producer- #,((current-type-eval) #'n))))
-        this-syntax)]
+       ;;       (displayln (get-orig this-syntax))]
+       #:with n- ((current-type-eval) #'n)
+       #:with out-n (if (number? (stx-e #'n-)) #'(#%datum . n-) #'n-)
+       (add-orig
+        (mk-type (expand/df #'(Producer- out-n)))
+        #'(Producer n-))]
       [t+ #'t+]))
   (current-type-eval new-eval)
 
@@ -621,6 +622,16 @@
    [⊢ f ≫ f- ⇐ Filter] ...
    -----------
    [⊢ (v:#%app v:attach-filter p- f- ...) ⇒ Producer]])
+
+(define-typed-syntax cut-producer
+  [(_ p #:start m #:end n) ≫
+   [⊢ p ≫ _ ⇐ (Producer m)]
+   [⊢ p ≫ p- ⇐ (Producer (+ 1 (- n m)))]
+   [⊢ m ≫ m- ⇐ Int]
+   [⊢ n ≫ n- ⇐ Int]
+   -----------
+   [⊢ (v:#%app v:cut-producer p- #:start m- #:end n-) ⇒ (Producer (+ 1 (- n m)))]])
+   
 
 ;; props ----------------------------------------------------------------------
 (define-typed-syntax get-property
