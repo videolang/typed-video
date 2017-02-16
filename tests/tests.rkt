@@ -3,7 +3,8 @@
 (check-type (blank 1) : (Producer 1))
 (check-type (blank 1) : (Producer 0)) ; shorter type ok
 (check-not-type (blank 1) : (Producer 2)) ; longer type not ok
-(typecheck-fail (Producer Int) #:with-msg "expected exact-nonnegative-integer")
+(typecheck-fail (Producer Int)
+ #:with-msg "Producer: expected expression of type Int, given Int")
 (check-not-type (blank (+ 1 2)) : Producer)
 (check-type (blank (+ 1 2)) : (Producer 3))
 

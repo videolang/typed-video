@@ -231,11 +231,12 @@
 (define (make-speaker-slides-composite [sp : (Producer 1000)]
                                        [sl : (Producer 1000)]
                                        → (Producer 1000))
-  (multitrack sp sl logo bg
-              #:transitions
-              (list (composite-transition 0 0 3/10 1 #:top sp #:bottom bg)
-                    (composite-transition 0 1/2 3/10 1 #:top logo #:bottom bg)
-                    (composite-transition 1/3 0 2/3 1 #:top sl #:bottom bg))))
+  (let ([bg (blank 1000)])
+    (multitrack sp sl logo bg
+     #:transitions
+     (list (composite-transition 0 0 3/10 1 #:top sp #:bottom bg)
+           (composite-transition 0 1/2 3/10 1 #:top logo #:bottom bg)
+           (composite-transition 1/3 0 2/3 1 #:top sl #:bottom bg)))))
 
 (check-type make-speaker-slides-composite
             : (→ (Producer 1000) (Producer 1000) (Producer 1000)))

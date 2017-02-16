@@ -11,7 +11,7 @@
          (provide . xs))]))
 
 (provide/types
- λ #%app + / #%datum define begin if let let*
+ λ #%app + / #%datum define begin if let let* displayln
  list car cdr null null?
  blank color image clip multitrack playlist
  composite-transition fade-transition scale-filter attach-filter
@@ -25,8 +25,17 @@
 
 ; ≫ τ ⊢ ⇒ ⇐
 
+;; lang stuff
+#;(begin-for-syntax
+  (define video-ids (list #'v:#%app))
+  (define (expand/vid e)
+;    (printf "expand/viding: ~a\n" (stx->datum e))
+    (define res (local-expand e 'expression video-ids))
+;    (printf "res: ~a\n" (stx->datum res))
+    res))
+
 ;; types ----------------------------------------------------------------------
-(define-base-types String Int Num Bool Filter)
+(define-base-types String Int Num Bool Void Filter)
 (define-type-constructor Listof)
 ;; TODO: support kws in function type
 (define-type-constructor → #:arity > 0)
@@ -36,7 +45,16 @@
     [_:id ; shorthand for inf length
      (add-orig (mk-type #'(Producer- (v:#%datum . +inf.0))) stx)]
     [(_ n:exact-nonnegative-integer)
-     (add-orig (mk-type #'(Producer- n)) stx)]))
+     (add-orig (mk-type #'(Producer- n)) stx)]
+    [(_ n)
+     ;; #:do[(printf "Prod arg: ~a : ~a\n"
+     ;;              (stx->datum stx)
+     ;;              (typeof (local-expand #'n 'expression null)))]
+     #:with n- (expand/df #'n)
+     #:when (Int? (typeof #'n-)) ; any Int *expression* is ok as the type
+     (mk-type #'(Producer- n-))]
+    [(_ x) (type-error #:src stx
+                      #:msg "Producer: expected expression of type Int, given ~a" #'x)]))
 (define-internal-type-constructor Transition)
 (define-syntax (Transition stx)
   (syntax-parse stx
@@ -47,8 +65,8 @@
 
 ;; override typecheck-relation to consider numbers
 (begin-for-syntax
+  ;; new type relation: a subtyping relation
   (define old-type-rel (current-typecheck-relation))
-  ;; new-type-rel is subtyping relation
   (define (new-type-rel t1 t2)
     ;; (printf "t1 = ~a\n" (stx->datum t1))
     ;; (printf "t2 = ~a\n" (stx->datum t2))
@@ -63,7 +81,43 @@
       [(((~literal quote) m:number) ((~literal quote) n:number))
        (>= (stx-e #'m) (stx-e #'n))] ; longer vid is "more precise"
       [_ #f])))
-  (current-typecheck-relation new-type-rel))
+  (current-typecheck-relation new-type-rel)
+  
+  ;; new type eval
+  (define old-eval (current-type-eval))
+  (define (new-eval t)
+    (syntax-parse (old-eval t)
+;      [t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
+      ;; number literals
+      [((~literal quote) n:exact-nonnegative-integer) #'n]
+      ;; #%app producer-length
+      [((~literal #%plain-app) p-len p)
+       #:with (~literal v:producer-length) (syntax-property this-syntax 'orig-app)
+       #:with (~Producer n) (typeof #'p)
+       #'n]
+      ;; #%app +
+      [((~literal #%plain-app) (~literal v:+) . args)
+       #:with (~and ns
+                   ((~or _:exact-nonnegative-integer
+                    ((~literal quote) _:exact-nonnegative-integer))...))
+              (stx-map (current-type-eval) #'args)
+       (stx+ #'ns)]
+      ;; #%app /
+      [((~literal #%plain-app) (~literal v:/) . args)
+       #:with (~and ns
+                   ((~or _:exact-nonnegative-integer
+                    ((~literal quote) _:exact-nonnegative-integer))...))
+              (stx-map (current-type-eval) #'args)
+       (stx/ #'ns)]
+      [(~Producer n)
+;       #:do [(printf "Producer with: ~a\n" (stx->datum #'n))
+;             (displayln (get-orig this-syntax))]
+       (pass-orig
+        (mk-type
+         (expand/df #`(Producer- #,((current-type-eval) #'n))))
+        this-syntax)]
+      [t+ #'t+]))
+  (current-type-eval new-eval))
 
 (define-syntax define-named-type-alias
   (syntax-parser
@@ -78,6 +132,13 @@
 (define-named-type-alias AnyProducer (Producer 0))
 
 ;; prims ----------------------------------------------------------------------
+
+(define-typed-syntax (displayln e) ≫
+  [⊢ e ≫ e- ⇒ _]
+  #:do[(displayln "start tests --------------------------------------------------")]
+  ---------
+  [⊢ (v:#%app v:displayln e-) ⇒ Void])
+
 (define-typed-syntax +
   [_:id ≫ ; HO use is binary
    ----------
@@ -277,20 +338,23 @@
    --------
    [≻ (let ([x e]) (let* ([x_rst e_rst] ...) e_body ...))]])
 
+
+
 ;; basic producers ------------------------------------------------------------
 (define-typed-syntax blank
-  [(_ n:exact-nonnegative-integer) ≫
+  #;[(_ n:exact-nonnegative-integer) ≫
    --------
    [⊢ (v:#%app v:blank n) ⇒ (Producer n)]]
   ;; TODO: use eval when not literal?
   [(_ n) ≫
    [⊢ n ≫ n- ⇐ Int]
-   #:do [(define len
-           (with-handlers ([exn? (λ _ #f)])
-             (eval (syntax->datum #'n) (make-base-namespace))))]
+   ;; #:do [(define len
+   ;;         (with-handlers ([exn? (λ _ #f)])
+   ;;           (eval (syntax->datum #'n) (make-base-namespace))))]
    --------
-   [⊢ (v:#%app v:blank n) ⇒ #,(or (and len #`(Producer #,len))
-                                  #'Producer)]])
+   #;[⊢ (v:#%app v:blank n-) ⇒ #,(or (and len #`(Producer #,len))
+                                     #'Producer)]
+   [⊢ (v:#%app v:blank n-) ⇒ (Producer n)]])
 
 ;; TODO: abstract definitions of these producers
 ;; TODO: add HO case
@@ -374,7 +438,13 @@
    --------
    [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ Producer]])
 
-(define-primop producer-length v:producer-length : (→ (Producer 0) Int))
+(define-typed-syntax (producer-length p) ≫
+  [⊢ p ≫ p- ⇒ (~Producer _)]
+  ---------
+  [⊢ #,(syntax-property
+        #'(v:#%app v:producer-length p-)
+        'orig-app
+        #'v:producer-length) ⇒ Int])
 
 ;; playlist combinators -------------------------------------------------------
 ;; TODO: should be interleaved Transition and Producer?
