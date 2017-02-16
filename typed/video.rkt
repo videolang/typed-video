@@ -285,8 +285,12 @@
   ;; TODO: use eval when not literal?
   [(_ n) ≫
    [⊢ n ≫ n- ⇐ Int]
+   #:do [(define len
+           (with-handlers ([exn? (λ _ #f)])
+             (eval (syntax->datum #'n) (make-base-namespace))))]
    --------
-   [⊢ (v:#%app v:blank n) ⇒ Producer]])
+   [⊢ (v:#%app v:blank n) ⇒ #,(or (and len #`(Producer #,len))
+                                  #'Producer)]])
 
 ;; TODO: abstract definitions of these producers
 ;; TODO: add HO case
