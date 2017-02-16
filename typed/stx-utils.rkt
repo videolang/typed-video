@@ -6,7 +6,7 @@
 (define (stx->nums stx)
   (map
    (syntax-parser [(_ x) (stx->datum #'x)]
-                  [n:exact-nonnegative-integer (stx->datum #'n)])
+                  [n:integer (stx-e #'n)])
    (stx->list stx)))
 
 (define (stx+ ns)    (apply + (stx->nums ns)))

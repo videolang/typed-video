@@ -11,7 +11,7 @@
          (provide . xs))]))
 
 (provide/types
- λ #%app + - / #%datum define begin if let let* displayln
+ λ #%app + - / min max #%datum define begin if let let* displayln
  list car cdr null null?
  blank color image clip multitrack playlist
  composite-transition fade-transition scale-filter attach-filter
@@ -22,6 +22,9 @@
 
 ;; TODO:
 ;; - 2017-02-13: #%module-begin define lifting not working for typed define
+
+;; NOTES:
+;; if getting "bad syntax" on ids, look for stx+, eg in playlist or multitrack
 
 ; ≫ τ ⊢ ⇒ ⇐ ≻ ∀
 
@@ -34,30 +37,27 @@
 (define-internal-type-constructor →)
 (define-kinded-syntax →
   [(_ #:bind (X ...) ty ...+) ≫
-   [([X ≫ X- : Int] ...) ⊢ [ty ≫ ty- ⇐ #%type] ...]
-   ;#:with args- (stx-map (current-type-eval) #'(args ...))
-   ;#:when (stx-andmap (current-type?) #'args-)
+   [[X ≫ X- : Int] ... ⊢ [ty ≫ ty- ⇐ #%type] ...]
    ----------
    [≻ #,(add-orig #`(∀ (X- ...) #,(mk-type #'(→- ty- ...))) #'(→ ty ...))]]
   [(_ ty ...+) ≫
    [⊢ ty ≫ ty- ⇐ #%type] ...
-   ;; #:with args- (stx-map (current-type-eval) #'(args ...))
-   ;; #:when (stx-andmap (current-type?) #'args-)
    -----------
    [≻ #,(add-orig #`(∀ () #,(mk-type #'(→- ty- ...))) #'(→ ty ...))]])
 (define-internal-type-constructor Producer)
 (define-syntax (Producer stx)
   (syntax-parse stx
     [_:id ; shorthand for inf length
-     (add-orig (mk-type #'(Producer- 99999)) stx)]
+     (add-orig (mk-type #'(Producer- 99999)) stx)] ; TODO: make this inf?
     [(_ n:exact-nonnegative-integer)
      (add-orig (mk-type #'(Producer- n)) stx)]
     [(_ n)
      #:with n- (expand/df #'n)
      #:when (Int? (typeof #'n-)) ; any Int *expression* is ok as the type
      (mk-type #'(Producer- n-))]
-    [(_ x) (type-error #:src stx
-                      #:msg "Producer: expected expression of type Int, given ~a" #'x)]))
+    [(_ x) (type-error
+            #:src stx
+            #:msg "Producer: expected expression of type Int, given ~a" #'x)]))
 (define-internal-type-constructor Transition)
 (define-syntax (Transition stx)
   (syntax-parse stx
@@ -80,10 +80,16 @@
       [((~Listof x) (~Listof y))         (typecheck? #'x #'y)]
       [((~Producer m) (~Producer n))     (typecheck? #'m #'n)]
       [((~Transition m) (~Transition n)) (typecheck? #'m #'n)]
-      [((~∀ _ (~→ i ... o)) (~∀ _ (~→ j ... p))) (typechecks? #'(j ... o) #'(i ... p))]
+      [((~∀ Xs t1) (~∀ Ys t2))
+        (and (stx-length=? #'Xs #'Ys)
+             (typecheck? (substs #'Ys #'Xs #'t1) #'t2))]
+      [((~→ i ... o) (~→ j ... p)) (typechecks? #'(j ... o) #'(i ... p))]
       [(((~literal quote) m:number) ((~literal quote) n:number))
-       (>= (stx-e #'m) (stx-e #'n))] ; longer vid is "more precise"
-      ;; arith expr
+       (>= (stx-e #'m) (stx-e #'n))]   ; longer vid is "more precise"
+      [(_ ((~literal quote) n:number)) ; AnyProducer needs this
+       #:when (zero? (stx-e #'n))
+       #t]
+      ;; arith expr: sort
       [(((~literal #%plain-app)
          (~and op1 (~or (~literal v:+) (~literal v:/) (~literal v:-))) . xs)
         ((~literal #%plain-app)
@@ -108,11 +114,13 @@
        #'n]
       ;; #%app +
       [((~literal #%plain-app) (~literal v:+) . args)
-       #:with (~and ns
-                   ((~or _:exact-nonnegative-integer
-                    ((~literal quote) _:exact-nonnegative-integer))...))
+       #:with ((~or n:integer
+                    ((~literal quote) m:integer)
+                    other) ...) ; collect unsolved terms
               (stx-map (current-type-eval) #'args)
-       (stx+ #'ns)]
+       (if (stx-null? (attribute other))
+           (+ (stx+ #'(n ...)) (stx+ #'(m ...)))
+           #`(#%plain-app v:+ #,(+ (stx+ #'(n ...)) (stx+ #'(m ...))) other ...))]
       ;; #%app -
       [((~literal #%plain-app) (~literal v:-) . args)
        #:with (~and ns
@@ -127,6 +135,13 @@
                     ((~literal quote) _:exact-nonnegative-integer))...))
               (stx-map (current-type-eval) #'args)
        (stx/ #'ns)]
+      ;; #%app min
+      [((~literal #%plain-app) (~literal v:min) . args)
+       #:with (~and ns
+                   ((~or _:exact-nonnegative-integer
+                    ((~literal quote) _:exact-nonnegative-integer))...))
+              (stx-map (current-type-eval) #'args)
+       (stx-min #'ns)]
       [(~Producer n)
       ;; #:do [(printf "Producer with: ~a\n" (stx->datum #'n))
       ;;       (displayln (get-orig this-syntax))]
@@ -172,6 +187,27 @@
   [⊢ e ≫ e- ⇒ _]
   ---------
   [⊢ (v:#%app v:displayln e-) ⇒ Void])
+
+(define-typed-syntax min
+  [_:id ≫ ; HO use is binary
+   ----------
+   [⊢ v:min ⇒ (→ Int Int Int)]]
+  [(_ e ...) ≫
+   #:with (e* ...) (remove-duplicates (attribute e) free-id=?)
+   [⊢ e* ≫ e- ⇐ Int] ...
+   ----------
+   [⊢ #,(if (= 1 (length (attribute e-)))
+            (stx-car (attribute e-))
+            #'(v:#%app v:min e- ...)) ⇒ Int]])
+
+(define-typed-syntax max
+  [_:id ≫ ; HO use is binary
+   ----------
+   [⊢ v:max ⇒ (→ Int Int Int)]]
+  [(_ e ...) ≫
+   [⊢ e ≫ e- ⇐ Int] ...
+   ----------
+   [⊢ (v:#%app v:max e- ...) ⇒ Int]])
 
 (define-typed-syntax +
   [_:id ≫ ; HO use is binary
@@ -251,12 +287,6 @@
   [(_ . b:boolean) ≫
    ---------
    [⊢ (v:#%datum . b) ⇒ Bool]]
-  #;[(_ . v) ≫
-   #:do [(displayln (stx->datum #'v))
-         (displayln (= (stx->datum #'v) +inf.0))]
-   #:when #f
-   -----------
-   [⊢ (void) ⇒ Bool]]
   [(_ . x) ≫
    --------
    [#:error (type-error #:src #'x #:msg "Unsupported literal: ~v" #'x)]])
@@ -273,7 +303,6 @@
            to 
            props/filtered)))
 
-;; TODO: add length polymorphism
 ;; TODO: internal defines
 (define-typed-syntax define
   [(_ x:id (~datum :) τ:type e:expr) ≫
@@ -334,7 +363,9 @@
    #:with (X+ty ...) (unify #'(τ_inX ...) #'(τ_arg ...))
    #:with (τ_in ... τ_out)
           (substs (lookup #'(X ...) #'(X+ty ...)) #'(X ...) #'(τ_inX ... τ_outX))
-   [⊢ e_arg ≫ e_arg- ⇐ τ_in] ... ; double?
+   ;; #:fail-unless (typechecks? #'(τ_arg ...) #'(τ_in ...))
+   ;;               "TODO: change orig to inst"
+   [⊢ e_arg ≫ e_arg- ⇐ τ_in] ... ; double expand?
    --------
    [⊢ (v:#%app e_fn- e_arg- ...) ⇒ τ_out]]
   [(_ e_fn e_arg ...) ≫ ;; non-polymorphic
@@ -487,23 +518,26 @@
 ;; playlist combinators -------------------------------------------------------
 ;; TODO: should be interleaved Transition and Producer?
 (define-typed-syntax multitrack
-  [(_ (~and p (~not _:keyword)) ... #:length n:exact-nonnegative-integer) ≫
-   [⊢ p ≫ p- ⇒ ty] ...
-   #:when (stx-andmap (λ (t) (or (Transition? t) (Producer? t))) #'(ty ...))
-   [⊢ n ≫ n- ⇐ Int]
+  [(_ (~and p (~not _:keyword)) ... #:transitions trans #:length n) ≫
+   [⊢ p ≫ p- ⇒ (~Producer _)] ...
+   [⊢ trans ≫ trans- ⇒ (~Listof (~Transition _))]
    ------------
-   [⊢ (v:#%app v:multitrack p- ... #:length n-) ⇒ (Producer n)]]
-  [(_ (~and p (~not _:keyword)) ... #:length n) ≫
-   [⊢ p ≫ p- ⇒ ty] ...
-   #:when (stx-andmap (λ (t) (or (Transition? t) (Producer? t))) #'(ty ...))
-   [⊢ n ≫ n- ⇐ Int]
-   ------------
-   [⊢ (v:#%app v:multitrack p- ... #:length n-) ⇒ Producer]]
+   [⊢ (v:#%app v:multitrack p- ... #:transitions trans-) ⇒ (Producer n)]]
   [(_ (~and p (~not _:keyword)) ... #:transitions trans) ≫
    [⊢ p ≫ p- ⇒ (~Producer _)] ...
    [⊢ trans ≫ trans- ⇒ (~Listof (~Transition _))]
    ------------
    [⊢ (v:#%app v:multitrack p- ... #:transitions trans-) ⇒ Producer]]
+  [(_ (~and p (~not _:keyword)) ... #:length n) ≫
+   [⊢ p ≫ p- ⇒ ty] ...
+   #:when (stx-andmap (λ (t) (or (Transition? t) (Producer? t))) #'(ty ...))
+   [⊢ n ≫ n- ⇐ Int]
+   ------------
+   [⊢ (v:#%app v:multitrack p- ... #:length n-) ⇒ (Producer n)]]
+  [(_ p ...) ≫ ; producers only
+   [⊢ p ≫ p- ⇒ (~Producer n)] ...
+   ------------
+   [⊢ (v:#%app v:multitrack p- ...) ⇒ (Producer (min n ...))]]
   [(_ p ...) ≫
    [⊢ p ≫ p- ⇒ ty] ...
    #:when (stx-andmap (λ (t) (or (Transition? t) (Producer? t))) #'(ty ...))
@@ -521,10 +555,6 @@
    ------------
    [⊢ (v:#%app v:playlist p- ... #:transitions trans-)
       ⇒ #,(mk-type #`(Producer- #,(stx+ (attribute n))))]]
-  #;[(_ p ...) ≫ ; producers only
-   [⊢ p ≫ p- ⇒ (~Producer n)] ...
-   ------------
-   [⊢ (v:#%app v:playlist p- ...) ⇒ (Producer- #,(stx+ (attribute n)))]]
   [(_ p ...) ≫ ; producers only
    [⊢ p ≫ p- ⇒ (~Producer n)] ...
    ------------
@@ -536,9 +566,8 @@
    [⊢ p/t ≫ p/t- ⇒ P-or-T] ...
    #:with ((~or (~Producer n) (~Transition m)) ...) #'(P-or-T ...)
    ------------
-   [⊢ (v:#%app v:playlist p1- p/t- ... pn-)
-      ⇒ (Producer- #,(- (stx+ (cons #'n1 (cons #'nn (attribute n))))
-                        (stx+ (attribute m))))]]
+   [⊢ (v:#%app v:playlist p1- p/t- ... pn-) 
+      ⇒ (Producer (+ n1 nn n ... (- (+ m ...))))]]
   [xs ≫
    ------------
    [#:error

@@ -224,18 +224,18 @@
 (define sl (blank 100))
 
 ;; TODO: improve function signatures?
-(define (make-speaker-slides-composite [sp : (Producer 1000)]
-                                       [sl : (Producer 1000)]
-                                       → (Producer 1000))
-  (let ([bg (blank 1000)])
+(define (make-speaker-slides-composite {n} [sp : (Producer n)]
+                                           [sl : (Producer n)] → (Producer n))
+  (let ([bg (blank (producer-length sp))])
     (multitrack sp sl logo bg
      #:transitions
      (list (composite-transition 0 0 3/10 1 #:top sp #:bottom bg)
            (composite-transition 0 1/2 3/10 1 #:top logo #:bottom bg)
-           (composite-transition 1/3 0 2/3 1 #:top sl #:bottom bg)))))
+           (composite-transition 1/3 0 2/3 1 #:top sl #:bottom bg))
+     #:length (producer-length sp))))
 
 (check-type make-speaker-slides-composite
-            : (→ (Producer 1000) (Producer 1000) (Producer 1000)))
+            : (→ #:bind {n} (Producer n) (Producer n) (Producer n)))
 ;; TODO: should this work? (defines at end)
 #;(define (make-talk-video main-talk)
   ;; defines are after playlist
@@ -247,7 +247,7 @@
   (define begin-clip (image circ-png #:length 500))
   (define end-clip (image circ-png #:length 500)))
 
-(define (make-talk-video [main-talk : (Producer 1000)] → (Producer 1600))
+(define (make-talk-video {n} [main-talk : (Producer n)] → (Producer (+ n 600)))
   ;; defines should be after playlist?
   ;; TODO: allow local defines
   ;; (define begin-clip (image circ-png #:length 500))
@@ -259,11 +259,11 @@
               main-talk
               (fade-transition #:length 200)
               end-clip)))
-(check-type make-talk-video : (→ (Producer 1000) (Producer 1600)))
+(check-type make-talk-video : (→ #:bind {m} (Producer m) (Producer (+ m 600))))
 
 ; TODO: add filters
-(define (attach-audio [v : (Producer 1600)][a : Producer][off : Int]
-                      → (Producer 1600))
+(define (attach-audio {n} [v : (Producer n)][a : Producer][off : Int]
+                      → (Producer n))
   #;(define cleaned-audio
     (attach-filter
      a
@@ -272,14 +272,15 @@
      #;(envelope-filter 50 #:direction 'out)))
   (let ([cleaned-audio (attach-filter a)])
     (multitrack v cleaned-audio #:length (producer-length v))))
-(check-type attach-audio : (→ (Producer 1600) Producer Int (Producer 1600)))
+(check-type attach-audio
+            : (→ #:bind {n} (Producer n) Producer Int (Producer n)))
 
 ;; TODO: use define*
-(define (make-conf-talk [sp : (Producer 1000)]
-                        [sl : (Producer 1000)]
-                        [a : Producer]
-                        [off : Int]
-                        → (Producer 1600))
+(define (make-conf-talk {n} [sp : (Producer n)]
+                            [sl : (Producer n)]
+                            [a : Producer]
+                            [off : Int]
+                            → (Producer (+ n 600)))
   ;; (define X (make-speaker-slides-composite sp sl))
   ;; (define Y (make-talk-video X))
   ;; (define v (make-talk-video Y))
@@ -289,7 +290,7 @@
     (attach-audio v a off)))
 (check-type
  make-conf-talk
- : (→ (Producer 1000) (Producer 1000)  Producer Int (Producer 1000)))
+ : (→ #:bind {n} (Producer n) (Producer n)  Producer Int (Producer (+ n 600))))
 
 (check-type
  (make-conf-talk (blank 1000) (blank 1000) (color "green") 0)
