@@ -27,14 +27,10 @@
 (define blue-clip (color "blue" #:length 8))
 (check-type blue-clip : (Producer 8))
 
-;; TODO: define-lifting not working for typed define
-(define (blue-length -> Int) (producer-length blue-clip))
-(check-type (blue-length) : Int)
-
-;; TODO: eval-syntax length arg?
 (check-type (image circ-png #:length 3) : (Producer 3))
 (check-type (image circ-png #:length (+ 1 2)) : (Producer 3))
-(check-type (image circ-png #:length (/ (blue-length) 8)) : Producer)
+(check-type (image circ-png #:length (/ (producer-length blue-clip) 8))
+            : (Producer 1))
 
 (check-type (composite-transition 0 0 3/4 3/4) : Transition)
 ;; ;(check-transition? (swipe-transition #:direction 'up #:length 2)) ; TODO
@@ -43,7 +39,7 @@
 ;; old fig1
 (check-not-type
  (multitrack
-  (image circ-png #:length (/ (blue-length) 8))
+  (image circ-png #:length (/ (producer-length blue-clip) 8))
   (composite-transition 0 0 3/4 3/4)
   blue-clip
   #:length 5)
@@ -51,7 +47,7 @@
 
 (check-type
  (multitrack
-  (image circ-png #:length (/ (blue-length) 8))
+  (image circ-png #:length (/ (producer-length blue-clip) 8))
   (composite-transition 0 0 3/4 3/4)
   blue-clip
   #:length 5)
@@ -59,7 +55,7 @@
 
 (check-type
  (multitrack
-  (image circ-png #:length (/ (blue-length) 8))
+  (image circ-png #:length (/ (producer-length blue-clip) 8))
   (composite-transition 0 0 3/4 3/4)
   blue-clip
   #:length 5)

@@ -11,7 +11,7 @@
          (provide . xs))]))
 
 (provide/types
- λ #%app + / #%datum define begin if let let* displayln
+ λ #%app + - / #%datum define begin if let let* displayln
  list car cdr null null?
  blank color image clip multitrack playlist
  composite-transition fade-transition scale-filter attach-filter
@@ -24,15 +24,6 @@
 ;; - 2017-02-13: #%module-begin define lifting not working for typed define
 
 ; ≫ τ ⊢ ⇒ ⇐
-
-;; lang stuff
-#;(begin-for-syntax
-  (define video-ids (list #'v:#%app))
-  (define (expand/vid e)
-;    (printf "expand/viding: ~a\n" (stx->datum e))
-    (define res (local-expand e 'expression video-ids))
-;    (printf "res: ~a\n" (stx->datum res))
-    res))
 
 ;; types ----------------------------------------------------------------------
 (define-base-types String Int Num Bool Void Filter)
@@ -47,9 +38,6 @@
     [(_ n:exact-nonnegative-integer)
      (add-orig (mk-type #'(Producer- n)) stx)]
     [(_ n)
-     ;; #:do[(printf "Prod arg: ~a : ~a\n"
-     ;;              (stx->datum stx)
-     ;;              (typeof (local-expand #'n 'expression null)))]
      #:with n- (expand/df #'n)
      #:when (Int? (typeof #'n-)) ; any Int *expression* is ok as the type
      (mk-type #'(Producer- n-))]
@@ -102,6 +90,13 @@
                     ((~literal quote) _:exact-nonnegative-integer))...))
               (stx-map (current-type-eval) #'args)
        (stx+ #'ns)]
+      ;; #%app -
+      [((~literal #%plain-app) (~literal v:-) . args)
+       #:with (~and ns
+                   ((~or _:exact-nonnegative-integer
+                    ((~literal quote) _:exact-nonnegative-integer))...))
+              (stx-map (current-type-eval) #'args)
+       (stx- #'ns)]
       ;; #%app /
       [((~literal #%plain-app) (~literal v:/) . args)
        #:with (~and ns
@@ -135,7 +130,6 @@
 
 (define-typed-syntax (displayln e) ≫
   [⊢ e ≫ e- ⇒ _]
-  #:do[(displayln "start tests --------------------------------------------------")]
   ---------
   [⊢ (v:#%app v:displayln e-) ⇒ Void])
 
@@ -147,6 +141,15 @@
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
    [⊢ (v:#%app v:+ e- ...) ⇒ Int]])
+
+(define-typed-syntax -
+  [_:id ≫ ; HO use is binary
+   ----------
+   [⊢ v:- ⇒ (→ Int Int)]]
+  [(_ e ...) ≫
+   [⊢ e ≫ e- ⇐ Int] ...
+   ----------
+   [⊢ (v:#%app v:- e- ...) ⇒ Int]])
 
 (define-typed-syntax /
   [_:id ≫ ; HO use is binary
@@ -194,7 +197,7 @@
    --------
    [≻ (cons x (list . rst))]])
 
-;; core forms -----------------------------------------------------------------
+;; Racket core forms ----------------------------------------------------------
 (define-typed-syntax #%datum
   [(_ . n:integer) ≫
    --------
@@ -340,20 +343,11 @@
 
 
 
-;; basic producers ------------------------------------------------------------
+;; basic Video producers ------------------------------------------------------
 (define-typed-syntax blank
-  #;[(_ n:exact-nonnegative-integer) ≫
-   --------
-   [⊢ (v:#%app v:blank n) ⇒ (Producer n)]]
-  ;; TODO: use eval when not literal?
   [(_ n) ≫
    [⊢ n ≫ n- ⇐ Int]
-   ;; #:do [(define len
-   ;;         (with-handlers ([exn? (λ _ #f)])
-   ;;           (eval (syntax->datum #'n) (make-base-namespace))))]
    --------
-   #;[⊢ (v:#%app v:blank n-) ⇒ #,(or (and len #`(Producer #,len))
-                                     #'Producer)]
    [⊢ (v:#%app v:blank n-) ⇒ (Producer n)]])
 
 ;; TODO: abstract definitions of these producers
@@ -363,36 +357,22 @@
    [⊢ c ≫ c- ⇐ String]
    --------
    [⊢ (v:#%app v:color c-) ⇒ Producer]]
-  [(_ c #:length n:exact-nonnegative-integer) ≫
-   [⊢ c ≫ c- ⇐ String]
-   [⊢ n ≫ n- ⇐ Int]
-   --------
-   [⊢ (v:#%app v:color c- #:length n-) ⇒ (Producer n)]]
   [(_ c #:length n) ≫
    [⊢ c ≫ c- ⇐ String]
    [⊢ n ≫ n- ⇐ Int]
    --------
-   [⊢ (v:#%app v:color c- #:length n-) ⇒ Producer]])
+   [⊢ (v:#%app v:color c- #:length n-) ⇒ (Producer n)]])
 
 (define-typed-syntax image
   [(_ f) ≫
    [⊢ f ≫ f- ⇐ String]
    --------
    [⊢ (v:#%app v:image f-) ⇒ Producer]]
-  [(_ f #:length n:exact-nonnegative-integer) ≫
-   [⊢ f ≫ f- ⇐ String]
-   [⊢ n ≫ n- ⇐ Int]
-   --------
-   [⊢ (v:#%app v:image f- #:length n-) ⇒ (Producer n)]]
   [(_ f #:length n) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ n ≫ n- ⇐ Int]
-   #:do [(define len
-           (with-handlers ([exn? (λ _ #f)])
-             (eval (syntax->datum #'n) (make-base-namespace))))]
    --------
-   [⊢ (v:#%app v:image f- #:length n-) ⇒ #,(or (and len #`(Producer #,len))
-                                               #'Producer)]])
+   [⊢ (v:#%app v:image f- #:length n-) ⇒ (Producer n)]])
 
 ;; TODO: read clip at compile time
 (define-typed-syntax clip
@@ -412,31 +392,17 @@
    [⊢ f ≫ f- ⇐ String]
    --------
    [⊢ (v:#%app v:clip f-) ⇒ Producer]]
-  [(_ f #:length n:exact-nonnegative-integer) ≫
-   [⊢ f ≫ f- ⇐ String]
-   [⊢ n ≫ n- ⇐ Int]
-   --------
-   [⊢ (v:#%app v:clip f- #:length n-) ⇒ (Producer n)]]
   [(_ f #:length n) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ n ≫ n- ⇐ Int]
    --------
-   [⊢ (v:#%app v:clip f- #:length n-) ⇒ Producer]]
-  [(_ f #:start n:exact-nonnegative-integer
-        #:end m:exact-nonnegative-integer) ≫
-   [⊢ f ≫ f- ⇐ String]
-   [⊢ n ≫ n- ⇐ Int]
-   [⊢ m ≫ m- ⇐ Int]
-   --------
-   [⊢ (v:#%app v:clip f- #:start n- #:end m-)
-      ⇒ (Producer #,(add1 (- (stx->datum #'m)
-                             (stx->datum #'n))))]]
+   [⊢ (v:#%app v:clip f- #:length n-) ⇒ (Producer n)]]
   [(_ f #:start n #:end m) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ n ≫ n- ⇐ Int]
    [⊢ m ≫ m- ⇐ Int]
    --------
-   [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ Producer]])
+   [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ (Producer (+ (- m n) 1))]])
 
 (define-typed-syntax (producer-length p) ≫
   [⊢ p ≫ p- ⇒ (~Producer _)]
