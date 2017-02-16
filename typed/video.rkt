@@ -16,7 +16,7 @@
  blank color image clip multitrack playlist
  composite-transition fade-transition scale-filter attach-filter
  get-property set-property producer-length)
-(provide Producer Transition Filter
+(provide AnyProducer Producer Transition Filter
          Int Num Bool String Listof →
          ann)
 
@@ -57,13 +57,25 @@
      (and (Int? t1) (Num? t2))
      (syntax-parse (list t1 t2)
       [((~Listof x) (~Listof y))         (typecheck? #'x #'y)]
-      [((~Producer n) (~Producer m))     (typecheck? #'n #'m)]
-      [((~Transition n) (~Transition m)) (typecheck? #'m #'n)] ; flip
+      [((~Producer m) (~Producer n))     (typecheck? #'m #'n)]
+      [((~Transition m) (~Transition n)) (typecheck? #'m #'n)]
       [((~→ i ... o) (~→ j ... p))       (typechecks? #'(j ... o) #'(i ... p))]
-      [(((~literal quote) n:number) ((~literal quote) m:number))
-       (<= (stx-e #'n) (stx-e #'m))]
+      [(((~literal quote) m:number) ((~literal quote) n:number))
+       (>= (stx-e #'m) (stx-e #'n))] ; longer vid is "more precise"
       [_ #f])))
   (current-typecheck-relation new-type-rel))
+
+(define-syntax define-named-type-alias
+  (syntax-parser
+    [(_ Name:id τ:any-type)
+     #'(define-syntax Name
+         (make-variable-like-transformer (add-orig #'τ #'Name)))]
+    [(_ (f:id x:id ...) ty) ; dont expand yet
+     #'(define-syntax (f stx)
+         (syntax-parse stx
+           [(_ x ...) (add-orig #'ty stx)]))]))
+
+(define-named-type-alias AnyProducer (Producer 0))
 
 ;; prims ----------------------------------------------------------------------
 (define-typed-syntax +
@@ -358,7 +370,7 @@
    --------
    [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ Producer]])
 
-(define-primop producer-length v:producer-length : (→ Producer Int))
+(define-primop producer-length v:producer-length : (→ (Producer 0) Int))
 
 ;; playlist combinators -------------------------------------------------------
 ;; TODO: should be interleaved Transition and Producer?
@@ -433,8 +445,8 @@
    [⊢ y ≫ y- ⇐ Num]
    [⊢ w ≫ w- ⇐ Num]
    [⊢ h ≫ h- ⇐ Num]
-   [⊢ t ≫ t- ⇐ Producer]
-   [⊢ b ≫ b- ⇐ Producer]
+   [⊢ t ≫ t- ⇐ AnyProducer]
+   [⊢ b ≫ b- ⇐ AnyProducer]
    --------
    [⊢ (v:#%app v:composite-transition x- y- w- h- #:top t- #:bottom b-)
       ⇒ Transition]])
