@@ -16,3 +16,10 @@
 (define (stx-min ns) (apply min (stx->nums ns)))
 
 (define stx-e syntax-e)
+
+(define (add-stx-props stx ks vs)
+  (for/fold ([stx stx]) ([k (in-stx-list ks)]
+                         [v (in-stx-list vs)])
+    (define k* (string->symbol (stx-e k))) ; must be symbol, to get properly transferred around
+    (define v* (stx-e v))
+    (syntax-property stx k* v*)))

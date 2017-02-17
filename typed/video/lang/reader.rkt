@@ -1,5 +1,5 @@
 #lang s-exp syntax/module-reader
-typed/video
+typed/main
 
 #:read read
 #:read-syntax read-syntax

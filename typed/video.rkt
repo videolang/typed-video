@@ -12,12 +12,13 @@
 
 (provide/types
  λ #%app + - / min max #%datum define begin if let let* displayln
- list car cdr null null?
- blank color image clip multitrack playlist
- composite-transition fade-transition scale-filter attach-filter cut-producer
+ list car cdr null null? hash equal?
+ blank color image clip multitrack playlist include-video
+ composite-transition fade-transition
+ scale-filter attach-filter grayscale-filter cut-producer
  get-property set-property producer-length)
 (provide AnyProducer Producer Transition Filter
-         Int Num Bool String Listof →
+         Int Num Bool String Listof Hash Void →
          ann)
 
 ;; TODO:
@@ -30,7 +31,7 @@
 
 ;; types ----------------------------------------------------------------------
 (define-syntax-category :: kind)
-(define-base-types String Int Num Bool Void Filter)
+(define-base-types String Int Num Bool Hash Void Filter)
 (define-type-constructor Listof)
 (define-binding-type ∀)
 ;; TODO: support kws in function type
@@ -101,17 +102,39 @@
   (current-typecheck-relation new-type-rel)
   
   ;; new type eval
+  (define (lit-stx? x) (define y (stx-e x)) (or (string? y)))
   (define old-eval (current-type-eval))
   (define (new-eval t)
     (syntax-parse (old-eval t)
 ;      [t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
       ;; number literals
       [((~literal quote) n:exact-nonnegative-integer) #'n]
+      [((~literal quote) s:str) #'s]
+      ;; if
+      [(~and orig ((~literal v:if) tst e1 e2))
+       #:do [(define res ((current-type-eval) #'tst))]
+       (if (boolean? res)
+           (if res ((current-type-eval) #'e1)  ((current-type-eval) #'e2))
+           #'orig)]
       ;; #%app producer-length
-      [((~literal #%plain-app) p-len p)
+      [((~literal #%plain-app) _ p)
        #:with (~literal v:producer-length) (syntax-property this-syntax 'orig-app)
        #:with (~Producer n) (typeof #'p)
        #'n]
+      ;; #%app get-property
+      [(~and orig ((~literal #%plain-app) _ p k))
+       #:with (~literal v:get-property) (syntax-property this-syntax 'orig-app)
+       #:do [(define k* (stx-e ((current-type-eval) #'k)))]
+       #:when (string? k*)
+       #:do [(define v (syntax-property #'p (string->symbol k*)))]
+       (or v #'orig)]
+      ;; #%app equal?
+      [(~and orig ((~literal #%plain-app) (~literal v:equal?) e1 e2))
+       #:with e1+ ((current-type-eval) #'e1)
+       #:with e2+ ((current-type-eval) #'e2)
+       (if (and (lit-stx? #'e1+) (lit-stx? #'e2+))
+           (equal? (stx-e #'e1+) (stx-e #'e2+))
+           #'orig)]
       ;; #%app +
       [((~literal #%plain-app) (~literal v:+) . args)
        #:with ((~or n:integer
@@ -143,7 +166,8 @@
               (stx-map (current-type-eval) #'args)
        (stx-min #'ns)]
       [(~Producer n)
-      ;; #:do [(printf "Producer with: ~a\n" (stx->datum #'n))
+       ;; TODO: just return inf if cant eval complicated arith expr
+       ;; #:do [(printf "Producer with: ~a\n" (stx->datum #'n))
        ;;       (displayln (get-orig this-syntax))]
        #:with n- ((current-type-eval) #'n)
        #:with out-n (if (number? (stx-e #'n-)) #'(#%datum . n-) #'n-)
@@ -194,7 +218,11 @@
    ----------
    [⊢ v:min ⇒ (→ Int Int Int)]]
   [(_ e ...) ≫
-   #:with (e* ...) (remove-duplicates (attribute e) free-id=?)
+   #:with (e* ...)
+          (remove-duplicates
+           (attribute e)
+           (λ (x y) (or (and (id? x) (id? y) (free-id=? x y))
+                        (equal? x y))))
    [⊢ e* ≫ e- ⇐ Int] ...
    ----------
    [⊢ #,(if (= 1 (length (attribute e-)))
@@ -237,7 +265,13 @@
    ----------
    [⊢ (v:#%app v:/ e- ...) ⇒ Int]])
 
-;; lists ----------------------------------------------------------------------
+(define-typed-syntax equal?
+  [(_ e1 e2) ≫
+   [⊢ e1 ≫ e1- ⇒ _] [⊢ e2 ≫ e2- ⇒ _]
+   ----------
+   [⊢ (v:#%app v:equal? e1- e2-) ⇒ Bool]])
+
+;; list and hash --------------------------------------------------------------
 (define-typed-syntax null
   [(_ ~! τi:type-ann) ≫
    --------
@@ -273,6 +307,11 @@
   [(_ x . rst) ≫ ; no expected type
    --------
    [≻ (cons x (list . rst))]])
+(define-typed-syntax hash
+  [(_ e ...) ≫
+   [⊢ e ≫ e- ⇒ _] ... ; TODO: dont care for now
+   --------
+   [⊢ (v:#%app v:hash e- ...) ⇒ Hash]])
 
 ;; Racket core forms ----------------------------------------------------------
 (define-typed-syntax #%datum
@@ -501,6 +540,18 @@
    [⊢ n ≫ n- ⇐ Int]
    --------
    [⊢ (v:#%app v:clip f- #:length n-) ⇒ (Producer n)]]
+  [(_ f #:properties (~and props ((~literal hash) (~seq k:str v:str) ...))) ≫
+   [⊢ f ≫ f- ⇐ String]
+   [⊢ props ≫ props- ⇒ _]
+   --------
+   [⊢ #,(add-stx-props
+         #'(v:#%app v:clip f- #:properties props-)
+         #'(k ...) #'(v ...)) ⇒ Producer]]
+  [(_ f #:properties props) ≫
+   [⊢ f ≫ f- ⇐ String]
+   [⊢ props ≫ props- ⇒ _]
+   --------
+   [⊢ (v:#%app v:clip f- #:properties props-) ⇒ Producer]]
   [(_ f #:start n #:end m) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ n ≫ n- ⇐ Int]
@@ -525,10 +576,10 @@
    ------------
    [⊢ (v:#%app v:multitrack p- ... #:transitions trans-) ⇒ (Producer n)]]
   [(_ (~and p (~not _:keyword)) ... #:transitions trans) ≫
-   [⊢ p ≫ p- ⇒ (~Producer _)] ...
+   [⊢ p ≫ p- ⇒ (~Producer n)] ...
    [⊢ trans ≫ trans- ⇒ (~Listof (~Transition _))]
    ------------
-   [⊢ (v:#%app v:multitrack p- ... #:transitions trans-) ⇒ Producer]]
+   [⊢ (v:#%app v:multitrack p- ... #:transitions trans-) ⇒ (Producer (min n ...))]]
   [(_ (~and p (~not _:keyword)) ... #:length n) ≫
    [⊢ p ≫ p- ⇒ ty] ...
    #:when (stx-andmap (λ (t) (or (Transition? t) (Producer? t))) #'(ty ...))
@@ -539,11 +590,12 @@
    [⊢ p ≫ p- ⇒ (~Producer n)] ...
    ------------
    [⊢ (v:#%app v:multitrack p- ...) ⇒ (Producer (min n ...))]]
-  [(_ p ...) ≫
-   [⊢ p ≫ p- ⇒ ty] ...
-   #:when (stx-andmap (λ (t) (or (Transition? t) (Producer? t))) #'(ty ...))
+  [(_ p/t ...) ≫
+;   [⊢ p ≫ p- ⇒ (~or (~Producer n) (~Transition m))] ... ; doesnt work, get #fs on non-match
+   [⊢ p/t ≫ p/t- ⇒ ty] ...
+   #:with ((~or (~Producer n) (~Transition _)) ...) #'(ty ...)
    ------------
-   [⊢ (v:#%app v:multitrack p- ...) ⇒ Producer]])
+   [⊢ (v:#%app v:multitrack p/t- ...) ⇒ (Producer (min n ...))]])
 
 ;; TODO: check interleaving of producers and transitions
 ;; TODO: check that stitching lengths is ok
@@ -615,7 +667,13 @@
    [⊢ p ≫ p- ⇒ (~and ty_out (~Producer _))]
    -----------
    [⊢ (v:#%app v:scale-filter p- w- h-) ⇒ ty_out]])
-   
+
+(define-typed-syntax grayscale-filter
+  [(_ p) ≫
+   [⊢ p ≫ p- ⇒ (~and ty_out (~Producer _))]
+   -----------
+   [⊢ (v:#%app v:grayscale-filter p-) ⇒ ty_out]])
+
 (define-typed-syntax attach-filter
   [(_ p f ...) ≫
    [⊢ p ≫ p- ⇒ (~Producer _)]
@@ -624,6 +682,11 @@
    [⊢ (v:#%app v:attach-filter p- f- ...) ⇒ Producer]])
 
 (define-typed-syntax cut-producer
+  [(_ p #:start m) ≫
+   [⊢ p ≫ p- (⇐ (Producer m)) (⇒ (~Producer n))]
+   [⊢ m ≫ m- ⇐ Int]
+   -----------
+   [⊢ (v:#%app v:cut-producer p- #:start m-) ⇒ (Producer (+ 1 (- n m)))]]
   [(_ p #:start m #:end n) ≫
    [⊢ p ≫ _ ⇐ (Producer m)]
    [⊢ p ≫ p- ⇐ (Producer (+ 1 (- n m)))]
@@ -639,7 +702,9 @@
    [⊢ p ≫ p- ⇐ Producer]
    [⊢ k ≫ k- ⇐ String]
    --------
-   [⊢ (v:#%app v:get-property p- k-) ⇒ String]]
+   [⊢ #,(syntax-property
+         #'(v:#%app v:get-property p- k-)
+         'orig-app #'v:get-property) ⇒ String]]
   [(_ p k (_ (~datum int))) ≫
    [⊢ p ≫ p- ⇐ Producer]
    [⊢ k ≫ k- ⇐ String]
@@ -658,3 +723,10 @@
    [⊢ v ≫ v- ⇒ _]
    --------
    [⊢ (v:#%app v:set-property p- k- v-) ⇒ ty_out]])
+
+(define-typed-syntax include-video
+  [(_ v) ≫
+   [⊢ v ≫ v- ⇒ _]
+   --------
+   [⊢ (v:#%app v:include-video v-) ⇒ Void]])
+   
