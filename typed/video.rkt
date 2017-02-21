@@ -11,7 +11,8 @@
          (provide . xs))]))
 
 (provide/types
- λ #%app + - / min max #%datum define begin if let let* displayln
+ λ #%app #%datum define begin if let let* displayln
+ + - / min max <= >= < >
  list car cdr null null? hash equal?
  blank color image clip multitrack playlist include-video
  composite-transition fade-transition
@@ -37,14 +38,17 @@
 ;; TODO: support kws in function type
 (define-internal-type-constructor →)
 (define-kinded-syntax →
-  [(_ #:bind (X ...) ty ...+) ≫
-   [[X ≫ X- : Int] ... ⊢ [ty ≫ ty- ⇐ #%type] ...]
+  [(_ #:bind (X ...) ty ...+ #:when C) ≫
+   [[X ≫ X- : Int] ... ⊢ [ty ≫ ty- ⇐ #%type] ... [C ≫ C- ⇒ _]]
    ----------
-   [≻ #,(add-orig #`(∀ (X- ...) #,(mk-type #'(→- ty- ...))) #'(→ ty ...))]]
+   [≻ #,(add-orig #`(∀ (X- ...) #,(mk-type #'(→- ty- ... C-))) #'(→ ty ...))]]
+  [(_ #:bind (X ...) ty ...+) ≫
+   ----------
+   [≻ (→ #:bind (X ...) ty ... #:when #t)]]
   [(_ ty ...+) ≫
    [⊢ ty ≫ ty- ⇐ #%type] ...
    -----------
-   [≻ #,(add-orig #`(∀ () #,(mk-type #'(→- ty- ...))) #'(→ ty ...))]])
+   [≻ #,(add-orig #`(∀ () #,(mk-type #'(→- ty- ... #t))) #'(→ ty ...))]])
 (define-internal-type-constructor Producer)
 (define-syntax (Producer stx)
   (syntax-parse stx
@@ -84,20 +88,27 @@
       [((~∀ Xs t1) (~∀ Ys t2))
         (and (stx-length=? #'Xs #'Ys)
              (typecheck? (substs #'Ys #'Xs #'t1) #'t2))]
-      [((~→ i ... o) (~→ j ... p)) (typechecks? #'(j ... o) #'(i ... p))]
+      [((~→ i ... o c) (~→ j ... p d)) (typechecks? #'(j ... o c) #'(i ... p d))]
       [(((~literal quote) m:number) ((~literal quote) n:number))
        (>= (stx-e #'m) (stx-e #'n))]   ; longer vid is "more precise"
+      [(((~literal quote) b1:boolean) ((~literal quote) b2:boolean))
+       (equal? (stx-e #'b1) (stx-e #'b2))]
       [(_ ((~literal quote) n:number)) ; AnyProducer needs this
        #:when (zero? (stx-e #'n))
        #t]
-      ;; arith expr: sort
+      ;; arith expr: sort + terms
+      [(((~literal #%plain-app) (~literal v:+) . xs)
+        ((~literal #%plain-app) (~literal v:+) . ys))
+       (and (stx-length=? #'xs #'ys)
+            (typechecks? (stx-sort #'xs) (stx-sort #'ys)))]
+      ;; arith expr: others
       [(((~literal #%plain-app)
-         (~and op1 (~or (~literal v:+) (~literal v:/) (~literal v:-))) . xs)
+         (~and op1 (~or (~literal v:>=) (~literal v:/) (~literal v:-))) . xs)
         ((~literal #%plain-app)
-         (~and op2 (~or (~literal v:+) (~literal v:/) (~literal v:-))) . ys))
+         (~and op2 (~or (~literal v:>=) (~literal v:/) (~literal v:-))) . ys))
        (and (free-id=? #'op1 #'op2)
             (stx-length=? #'xs #'ys)
-            (typechecks? (stx-sort #'xs) (stx-sort #'ys)))]
+            (typechecks? #'xs #'ys))]
       [_ #f])))
   (current-typecheck-relation new-type-rel)
   
@@ -110,6 +121,7 @@
       ;; number literals
       [((~literal quote) n:exact-nonnegative-integer) #'n]
       [((~literal quote) s:str) #'s]
+      [((~literal quote) b:boolean) #'b]
       ;; if
       [(~and orig ((~literal v:if) tst e1 e2))
        #:do [(define res ((current-type-eval) #'tst))]
@@ -135,6 +147,13 @@
        (if (and (lit-stx? #'e1+) (lit-stx? #'e2+))
            (equal? (stx-e #'e1+) (stx-e #'e2+))
            #'orig)]
+      ;; #%app >=
+      [((~literal #%plain-app) (~literal v:>=) . args)
+       #:with (~and ns
+                   ((~or _:exact-nonnegative-integer
+                         ((~literal quote) _:exact-nonnegative-integer))...))
+              (stx-map (current-type-eval) #'args)
+       (stx>= #'ns)]
       ;; #%app +
       [((~literal #%plain-app) (~literal v:+) . args)
        #:with ((~or n:integer
@@ -192,6 +211,8 @@
       [((~Producer n) (~Producer m))
        #'((n m))]
       [_ '()]))
+
+  (define current-Cs (make-parameter '()))
   )
 
 (define-syntax define-named-type-alias
@@ -271,6 +292,42 @@
    ----------
    [⊢ (v:#%app v:equal? e1- e2-) ⇒ Bool]])
 
+(define-typed-syntax >=
+  [_:id ≫ ; HO use is binary
+   ----------
+   [⊢ v:>= ⇒ (→ Int Int Bool)]]
+  [(_ e ...) ≫
+   [⊢ e ≫ e- ⇐ Int] ...
+   ----------
+   [⊢ (v:#%app v:>= e- ...) ⇒ Bool]])
+
+(define-typed-syntax <=
+  [_:id ≫ ; HO use is binary
+   ----------
+   [⊢ v:<= ⇒ (→ Int Int Bool)]]
+  [(_ e ...) ≫
+   [⊢ e ≫ e- ⇐ Int] ...
+   ----------
+   [⊢ (v:#%app v:<= e- ...) ⇒ Bool]])
+
+(define-typed-syntax >
+  [_:id ≫ ; HO use is binary
+   ----------
+   [⊢ v:> ⇒ (→ Int Int Bool)]]
+  [(_ e ...) ≫
+   [⊢ e ≫ e- ⇐ Int] ...
+   ----------
+   [⊢ (v:#%app v:> e- ...) ⇒ Bool]])
+
+(define-typed-syntax <
+  [_:id ≫ ; HO use is binary
+   ----------
+   [⊢ v:< ⇒ (→ Int Int Bool)]]
+  [(_ e ...) ≫
+   [⊢ e ≫ e- ⇐ Int] ...
+   ----------
+   [⊢ (v:#%app v:< e- ...) ⇒ Bool]])
+
 ;; list and hash --------------------------------------------------------------
 (define-typed-syntax null
   [(_ ~! τi:type-ann) ≫
@@ -345,6 +402,7 @@
 
 ;; TODO: internal defines
 (define-typed-syntax define
+  ;; define for values --------------------
   [(_ x:id (~datum :) τ:type e:expr) ≫
    ;[⊢ e ≫ e- ⇐ τ.norm] ; ok? since it gets lifted to top?
    #:with y (generate-temporary #'x)
@@ -360,16 +418,25 @@
    [≻ (begin-
         (define-syntax x (make-rename-transformer #'y+props))
         (define- y e-))]]
-  ;; explicit forall, TODO: infer tyvars
-  [(_ (f Xs [x (~datum :) ty] ... (~or (~datum →) (~datum ->)) ty_out) e ...+) ≫
+  ;; define for functions --------------------
+  ;; polymorphic: explicit forall, TODO: infer tyvars
+  [(_ (f Xs [x (~datum :) ty] ... (~optional (~seq #:when C) #:defaults ([C #'#t]))
+            (~or (~datum →) (~datum ->)) ty_out) e ...+) ≫
    #:when (brace? #'Xs)
+;   #:do[(printf "defining function ~a ------------------------------\n" (stx->datum #'f))]
+   #:with ty-expected #'(→ #:bind Xs ty ... ty_out #:when C)
+;   #:with lam+expect (add-expected-type #'(λ (x ...) (begin e ...)) #'ty-expected)
+   ;; this means mutual recursion wont work
+   [⊢ (add-expected (λ (x ...) (begin e ...)) ty-expected) ≫ lam- ⇒ τ_f]
+   ;; #:do[(printf "computed function type:\n")
+   ;;      (pretty-print (stx->datum #'τ_f))]
    #:with f- (add-orig (generate-temporary #'f) #'f)
-   #:with ty-expected #'(→ #:bind Xs ty ... ty_out)
    --------
    [≻ (begin-
-        (define-syntax- f (make-rename-transformer (⊢ f- : ty-expected)))
-        (define- f-
-          (ann (λ (x ...) (begin e ...)) : ty-expected)))]]
+        (define-syntax- f (make-rename-transformer (⊢ f- : τ_f)))
+        (define- f- lam-
+          #;(ann (λ (x ...) (begin e ...)) : ty-expected)))]]
+  ;; monomorphic:
   [(_ (f [x (~datum :) ty] ... (~or (~datum →) (~datum ->)) ty_out) e ...+) ≫
    #:with f- (add-orig (generate-temporary #'f) #'f)
    --------
@@ -381,35 +448,61 @@
             (ann (begin e ...) : ty_out))))]])
 
 (define-typed-syntax λ #:datum-literals (:)
-  [(_ (x ...) e) ⇐ (~∀ (X ...) (~→ τ_in ... τ_out)) ≫
-   [(X ...) ([x ≫ x- : τ_in] ...) ⊢ e ≫ e- ⇐ τ_out]
+  [(_ (x ...) e) ≫
+   #:with expected-ty (get-expected-type this-syntax)
+   #:when (syntax-e #'expected-ty)
+   #:with (~∀ (X ...) (~→ τ_in ... τ_out C0)) #'expected-ty
+   #:do[(current-Cs '())]
+   [([X ≫ X- : Int] ...) ([x ≫ x- : τ_in] ...) ⊢ e ≫ e- ⇐ τ_out]
+   ;; #:with (a ...) (stx-map (λ (y) 1) #'(X ...))
+   ;; #:do [(printf "captured Cs: ~a\n" (current-Cs))
+   ;;       (displayln #'(X- ...))
+   ;;       (map (λ (C) (displayln (substs #'(a ...) #'(X- ...) (syntax-local-introduce C)))) (current-Cs))]
+   #:with C (if (null? (current-Cs)) #'C0
+                ;; TODO: update orig: replace with X ...
+                (car (map (λ (C) (substs #'(X ...) #'(X- ...) (syntax-local-introduce C))) (current-Cs))))
+;   #:do [(printf "adding C: ~a\n" #'C)]
    -------
-   [⊢ (v:λ (x- ...) e-)]]
+   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X ...) τ_in ... τ_out #:when C)]]
   [(_ ([x:id : τ_in:type] ...) e) ≫
    [[x ≫ x- : τ_in.norm] ... ⊢ e ≫ e- ⇒ τ_out]
    -------
    [⊢ (v:λ (x- ...) e-) ⇒ (→ τ_in.norm ... τ_out)]]
-  [(_ (x:id ...) e) ⇐ (~→ τ_in ... τ_out) ≫ ; TODO: add forall?
+  [(_ (x:id ...) e) ⇐ (~→ τ_in ... τ_out _) ≫ ; TODO: add forall? I think this is covered by 1st case and can be deleted
    [[x ≫ x- : τ_in] ... ⊢ e ≫ e- ⇐ τ_out]
    ---------
    [⊢ (v:λ (x- ...) e-)]])
 
 (define-typed-syntax #%app
   [(_ e_fn e_arg ...) ≫ ;; must instantiate
-   [⊢ e_fn ≫ e_fn- ⇒ (~∀ (X ...+) ~! (~→ τ_inX ... τ_outX))]
+   ;; #:do [(printf "applied function: ~a\n" (stx->datum #'e_fn))]
+   [⊢ e_fn ≫ e_fn- ⇒ (~∀ (X ...+) ~! (~→ τ_inX ... τ_outX CX))]
    #:fail-unless (stx-length=? #'[τ_inX ...] #'[e_arg ...])
                  (num-args-fail-msg #'e_fn #'[τ_inX ...] #'[e_arg ...])
    [⊢ e_arg ≫ _ ⇒ τ_arg] ...
    #:with (X+ty ...) (unify #'(τ_inX ...) #'(τ_arg ...))
-   #:with (τ_in ... τ_out)
-          (substs (lookup #'(X ...) #'(X+ty ...)) #'(X ...) #'(τ_inX ... τ_outX))
+   ;; #:do[(printf "solved ~a: ~a\n" (stx->datum #'(X ...)) (stx->datum (lookup #'(X ...) #'(X+ty ...))))]
+   #:with (τ_in ... τ_out C)
+          (substs (lookup #'(X ...) #'(X+ty ...))
+                  #'(X ...)
+                  #'(τ_inX ... τ_outX CX))
+   ;; #:do [(printf "CX: ~a\n" (stx->datum #'CX))
+   ;;       (printf "C: ~a\n" (stx->datum #'C))]
+   #:with C- ((current-type-eval) #'C)
+   #:fail-unless (stx-e #'C-) (format "failed condition: ~a; inferred: ~a ~a\n"
+                                      (stx->datum #'CX)
+                                      (stx->datum #'(X ...))
+                                      (stx->datum (lookup #'(X ...) #'(X+ty ...))))
+   #:do [#;(printf "C-: ~a\n" (stx->datum #'C-))
+         (unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
+           (current-Cs (cons #'C (current-Cs))))]
    ;; #:fail-unless (typechecks? #'(τ_arg ...) #'(τ_in ...))
    ;;               "TODO: change orig to inst"
    [⊢ e_arg ≫ e_arg- ⇐ τ_in] ... ; double expand?
    --------
    [⊢ (v:#%app e_fn- e_arg- ...) ⇒ τ_out]]
   [(_ e_fn e_arg ...) ≫ ;; non-polymorphic
-   [⊢ e_fn ≫ e_fn- ⇒ (~∀ () ~! (~→ τ_in ... τ_out))]
+   [⊢ e_fn ≫ e_fn- ⇒ (~∀ () ~! (~→ τ_in ... τ_out _))]
    #:fail-unless (stx-length=? #'[τ_in ...] #'[e_arg ...])
                  (num-args-fail-msg #'e_fn #'[τ_in ...] #'[e_arg ...])
    [⊢ e_arg ≫ e_arg- ⇐ τ_in] ...

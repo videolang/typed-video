@@ -247,7 +247,8 @@
   (define begin-clip (image circ-png #:length 500))
   (define end-clip (image circ-png #:length 500)))
 
-(define (make-talk-video {n} [main-talk : (Producer n)] → (Producer (+ n 600)))
+(define (make-talk-video {m} [main-talk : (Producer m)] #:when (>= m 400)
+                             → (Producer (+ m 600)))
   ;; defines should be after playlist?
   ;; TODO: allow local defines
   ;; (define begin-clip (image circ-png #:length 500))
@@ -259,11 +260,12 @@
               main-talk
               (fade-transition #:length 200)
               end-clip)))
-(check-type make-talk-video : (→ #:bind {m} (Producer m) (Producer (+ m 600))))
+(check-type make-talk-video
+            : (→ #:bind {m} (Producer m) (Producer (+ m 600)) #:when (>= m 400)))
 
 ; TODO: add filters
-(define (attach-audio {n} [v : (Producer n)][a : Producer][off : Int]
-                      → (Producer n))
+(define (attach-audio {n1} [v : (Producer n1)][a : Producer][off : Int]
+                      → (Producer n1))
   #;(define cleaned-audio
     (attach-filter
      a
@@ -276,11 +278,11 @@
             : (→ #:bind {n} (Producer n) Producer Int (Producer n)))
 
 ;; TODO: use define*
-(define (make-conf-talk {n} [sp : (Producer n)]
-                            [sl : (Producer n)]
-                            [a : Producer]
-                            [off : Int]
-                            → (Producer (+ n 600)))
+(define (make-conf-talk {n2} [sp : (Producer n2)]
+                             [sl : (Producer n2)]
+                             [a : Producer]
+                             [off : Int]
+                             → (Producer (+ n2 600)))
   ;; (define X (make-speaker-slides-composite sp sl))
   ;; (define Y (make-talk-video X))
   ;; (define v (make-talk-video Y))
@@ -289,12 +291,16 @@
          [v (make-talk-video X)])
     (attach-audio v a off)))
 (check-type
- make-conf-talk
- : (→ #:bind {n} (Producer n) (Producer n)  Producer Int (Producer (+ n 600))))
+ make-conf-talk ; includes inferred constraint
+ : (→ #:bind {n} (Producer n) (Producer n) Producer Int (Producer (+ n 600)) #:when (>= n 400)))
 
 (check-type
  (make-conf-talk (blank 1000) (blank 1000) (color "green") 0)
  : (Producer 1600))
+
+(typecheck-fail
+ (make-conf-talk (blank 200) (blank 200) (color "green") 0)
+ #:with-msg "failed condition:.*>=.*n2.*400.*inferred.*n2.*200")
 
 (check-type (cut-producer (blank 100) #:start 10 #:end 20) : (Producer 11))
 

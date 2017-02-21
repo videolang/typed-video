@@ -10,6 +10,7 @@
    (stx->list stx)))
 
 (define (stx+ ns)    (apply + (stx->nums ns)))
+(define (stx>= ns)   (apply >= (stx->nums ns)))
 (define (stx- ns)    (apply - (stx->nums ns)))
 (define (stx/ ns)    (apply / (stx->nums ns)))
 (define (stx-max ns) (apply max (stx->nums ns)))
