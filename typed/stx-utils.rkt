@@ -18,6 +18,11 @@
 
 (define stx-e syntax-e)
 
+(define (stx-filter-out-false . stxs)
+  (filter
+   (λ (xs) (andmap (λ (x) (and x (stx-e x))) xs))
+   (apply map list (map stx->list stxs))))
+
 (define (add-stx-props stx ks vs)
   (for/fold ([stx stx]) ([k (in-stx-list ks)]
                          [v (in-stx-list vs)])

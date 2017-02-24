@@ -14,6 +14,7 @@
          (for-syntax ;(prefix-in v: video/base)
                      racket/base
                      racket/syntax
+                     macrotypes/stx-utils
                      syntax/parse
                      syntax/parse/lib/function-header
                      syntax/kerncase))
@@ -31,7 +32,7 @@
 
 (begin-for-syntax
   (define tv-move-ids
-    (list #'tv:define #'tv:require))
+    (list #'tv:define #'tv:require #'tv:require-vid))
   (define tv-ids
     (append
      tv-move-ids
@@ -43,11 +44,29 @@
     #;[(_ "λ/video" post-process exprs)
      #`(post-process (playlist . #,(reverse (syntax->list #'exprs))))]
     [(_ id:id post-process exprs)
+     #:with id-ty (format-id #'id "~a-ty" #'id)
+     #:with id-ty2 (format-id #'id "~a-ty2" #'id)
+     #:with (id* id-ty* id-ty2*) (generate-temporaries #'(id id-ty id-ty2))
+     #:with p- (local-expand
+                 ;; TODO: for now, dont post-process since it's untyped
+                 #`(tv:top-level-playlist . #,(reverse (syntax->list #'exprs)))
+                 'expression null)
+     #:with (~and (~Producer (_ n)) ty) (syntax-property #'p- ':)
      #`(r:begin
-        (r:define id
-         (v:#%app post-process
-          (v:#%app v:playlist . #,(reverse (syntax->list #'exprs)))))
-         (r:provide id))]
+        (r:define id* p-)
+        (r:define-syntax id-ty* (make-variable-like-transformer #'ty))
+        ;; just provide the number
+        ;; TODO: get stx= errors when trying to compare
+        ;; imported vs module-local stx
+        ;; eg (=? (Producer 0) (Producer 0))
+        ;; - even #%app is not the same
+        ;; - this is probably the same issue William ran into
+        (r:define id-ty2* (r:#%datum . n))
+        ;; provide type as both
+        ;; - macro (used by require-vid)
+        ;; - stx (used via dynamic-require in include-video)
+        (r:provide (rename-out [id* id] [id-ty* id-ty]))
+        (r:provide (rename-out [id-ty2* id-ty2])))]
     [(_ id post-process exprs . body)
      (syntax-parse #'body
        [(b1 . body)

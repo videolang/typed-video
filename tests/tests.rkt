@@ -34,3 +34,5 @@
 (define (f5 [p : (Producer 10)] -> (Producer 9)) p)
 (check-type (f5 (blank 10)) : (Producer 9))
 (check-not-type (f5 (blank 10)) : (Producer 10))
+
+(check-type (playlist) : (Producer 0))

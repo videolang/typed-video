@@ -6,19 +6,21 @@
   (syntax-parse stx
     [(_ . xs)
      #'(begin
-         (require (except-in video . xs))
+         (require (except-in video #%app . xs))
          (provide (all-from-out video))
          (provide . xs))]))
 
 (provide/types
- λ #%app #%datum define begin if let let* displayln
+ λ #%datum define begin if let let* displayln
  + - / min max <= >= < >
  list car cdr null null? hash equal?
  blank color image clip multitrack playlist include-video
  composite-transition fade-transition
  scale-filter attach-filter grayscale-filter cut-producer
  get-property set-property producer-length)
-(provide AnyProducer Producer Transition Filter
+(provide top-level-playlist ;provide-typeof
+         (rename-out [typed-app #%app]) require-vid
+         AnyProducer Producer Transition Filter (for-syntax ~Producer)
          Int Num Bool String Listof Hash Void →
          ann)
 
@@ -473,7 +475,7 @@
    ---------
    [⊢ (v:λ (x- ...) e-)]])
 
-(define-typed-syntax #%app
+(define-typed-syntax typed-app
   [(_ e_fn e_arg ...) ≫ ;; must instantiate
    ;; #:do [(printf "applied function: ~a\n" (stx->datum #'e_fn))]
    [⊢ e_fn ≫ e_fn- ⇒ (~∀ (X ...+) ~! (~→ τ_inX ... τ_outX CX))]
@@ -714,13 +716,23 @@
    ------------
    [⊢ (v:#%app v:playlist p1- p/t- ... pn-) 
       ⇒ (Producer (+ n1 nn n ... (- (+ m ...))))]]
-  [xs ≫
+  [(~and xs (_ p ...)) ≫
+   [⊢ p ≫ p- ⇒ ty] ...
+   #:do [(stx-map (compose displayln stx->datum) #'(p ...))
+         (stx-map (compose displayln stx->datum) #'(p- ...))
+         (stx-map (compose displayln stx->datum) #'(ty ...))]
    ------------
    [#:error
     (type-error
      #:src #'xs
      #:msg "playlist must interleave producers and transitions, given: ~v"
      #'xs)]])
+(define-typed-syntax top-level-playlist
+  [(_ p ...) ≫
+   [⊢ p ≫ p- ⇒ ty] ...
+   #:with ((p* _) ...) (stx-filter-out-false #'(p ...) #'(ty ...))
+   --------
+   [≻ (playlist p* ...)]])
 
 ;; transitions ----------------------------------------------------------------
 (define-typed-syntax composite-transition
@@ -818,8 +830,65 @@
    [⊢ (v:#%app v:set-property p- k- v-) ⇒ ty_out]])
 
 (define-typed-syntax include-video
-  [(_ v) ≫
-   [⊢ v ≫ v- ⇒ _]
+  [(_ v #:start m #:end n) ≫
+   ;; TODO: check that n-m is an ok length against actualy type
+   [⊢ v ≫ v- ⇐ String]
+   [⊢ m ≫ m- ⇐ Int]
+   [⊢ n ≫ n- ⇐ Int]
    --------
-   [⊢ (v:#%app v:include-video v-) ⇒ Void]])
+   [⊢ (v:#%app v:include-video v- #:start m- #:end n-)
+      ⇒ (Producer (+ 1 (- n m)))]]
+  [(_ v) ≫
+   [⊢ v ≫ (~and v- (_ v--)) ⇐ String]
+   #:with tmp (generate-temporary)
+   #:with tmp2 (generate-temporary)
+   #:with vid (datum->syntax #'v 'vid)
+   #:with vid-ty2 (datum->syntax #'v 'vid-ty2)
+   #:with vid-ty* (format-id #'vid-ty "~a~a" #'tmp #'vid-ty)
+   [⊢ (let-syntax- ([tmp (make-variable-like-transformer
+                          (syntax-property
+                           #'(dynamic-require 'v 'vid)
+                           ':
+                           (local-expand
+                            #`(Producer (#%datum . #,(dynamic-require 'v 'vid-ty2)))
+                            'expression null)))])
+                   tmp)
+      ≫ (lv1 () (lv2 () e-)) ⇒ _]
+   --------
+   [≻ e-]])
+;;     (let-syntax- ([tmp (make-variable-like-transformer
+;;                         (syntax-property #'(dynamic-require 'v 'vid)
+;;                                          ': (dynamic-require 'v 'vid-ty2)))])
+;;         tmp)])])
+;; ;      #,(assign-type #'(v:#%app v:include-video v-) #'ty))]])
+;; ;    ⇒ Producer]
+;;    #;[≻ (let-syntax ([ty (dynamic-require-for-syntax 'v 'vid-ty)])
+;;         #,(assign-type #'(v:#%app v:include-video v-) #'ty))]
    
+#;(define-typed-syntax provide-typeof
+  [(_ id:id) ≫
+   [⊢ id ≫ _ ⇒ ty]
+   #:with id-ty (format-id #'id "~a-ty" #'id)
+   -------
+   [≻ (begin-
+        (define-for-syntax id-ty #'ty)
+        (provide (for-syntax id-ty)))]])
+
+#;(define-typed-syntax new-provide
+  [(_ (~and y (rn [x x1]))) ≫
+   [⊢ x ≫ _ ⇒ ty]
+   #:do[(displayln #'x)(displayln (stx->datum #'ty))]
+   ----------
+   [≻ (v:provide y)]])
+
+(define-typed-syntax require-vid
+  [(_ f)≫
+   #:with vid (datum->syntax #'f 'vid)
+   #:with v-vid (datum->syntax #'f 'v-vid)
+   #:with v-vid-ty (datum->syntax #'f 'v-vid-ty)
+   ----------
+   [≻ (begin-
+        (require- (prefix-in- v- f))
+        (define-syntax- vid
+          (make-rename-transformer
+           (assign-type #'v-vid #'v-vid-ty))))]])
