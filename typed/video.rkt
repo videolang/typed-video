@@ -18,14 +18,16 @@
  composite-transition fade-transition
  scale-filter attach-filter grayscale-filter cut-producer
  get-property set-property producer-length)
-(provide top-level-playlist ;provide-typeof
-         (rename-out [typed-app #%app]) require-vid
+(provide top-level-playlist require-vid
+         (rename-out [typed-app #%app])
          AnyProducer Producer Transition Filter (for-syntax ~Producer)
          Int Num Bool String Listof Hash Void →
          ann)
 
 ;; TODO:
+;; - 2017-02-26: λ/video still not working
 ;; - 2017-02-13: #%module-begin define lifting not working for typed define
+;;               DONE 2017-02-24
 
 ;; NOTES:
 ;; if getting "bad syntax" on ids, look for stx+, eg in playlist or multitrack
@@ -73,7 +75,7 @@
     [(_ n:exact-nonnegative-integer)
      (add-orig (mk-type #'(Transition- n)) stx)]))
 
-;; override typecheck-relation to consider numbers
+;; override typecheck-relation to consider numbers and other terms
 (begin-for-syntax
   ;; new type relation: a subtyping relation
   (define old-type-rel (current-typecheck-relation))
@@ -425,20 +427,17 @@
   [(_ (f Xs [x (~datum :) ty] ... (~optional (~seq #:when C) #:defaults ([C #'#t]))
             (~or (~datum →) (~datum ->)) ty_out) e ...+) ≫
    #:when (brace? #'Xs)
-;   #:do[(printf "defining function ~a ------------------------------\n" (stx->datum #'f))]
    #:with ty-expected #'(→ #:bind Xs ty ... ty_out #:when C)
-;   #:with lam+expect (add-expected-type #'(λ (x ...) (begin e ...)) #'ty-expected)
-   ;; this means mutual recursion wont work
+   ;; expanding the λ here means mutual recursion wont work
+   ;; but need to to get back τ_f, which may contain new constraints
+   ;; (when compared to ty-expected)
    [⊢ (add-expected (λ (x ...) (begin e ...)) ty-expected) ≫ lam- ⇒ τ_f]
-   ;; #:do[(printf "computed function type:\n")
-   ;;      (pretty-print (stx->datum #'τ_f))]
    #:with f- (add-orig (generate-temporary #'f) #'f)
    --------
    [≻ (begin-
         (define-syntax- f (make-rename-transformer (⊢ f- : τ_f)))
-        (define- f- lam-
-          #;(ann (λ (x ...) (begin e ...)) : ty-expected)))]]
-  ;; monomorphic:
+        (define- f- lam-))]]
+  ;; monomorphic case, mutual recursion works ok
   [(_ (f [x (~datum :) ty] ... (~or (~datum →) (~datum ->)) ty_out) e ...+) ≫
    #:with f- (add-orig (generate-temporary #'f) #'f)
    --------
@@ -450,56 +449,44 @@
             (ann (begin e ...) : ty_out))))]])
 
 (define-typed-syntax λ #:datum-literals (:)
-  [(_ (x ...) e) ≫
+  [(_ (x:id ...) e) ≫
    #:with expected-ty (get-expected-type this-syntax)
    #:when (syntax-e #'expected-ty)
    #:with (~∀ (X ...) (~→ τ_in ... τ_out C0)) #'expected-ty
-   #:do[(current-Cs '())]
+   #:do[(current-Cs '())] ; reset Cs; this is essentially parameterize
    [([X ≫ X- : Int] ...) ([x ≫ x- : τ_in] ...) ⊢ e ≫ e- ⇐ τ_out]
-   ;; #:with (a ...) (stx-map (λ (y) 1) #'(X ...))
-   ;; #:do [(printf "captured Cs: ~a\n" (current-Cs))
-   ;;       (displayln #'(X- ...))
-   ;;       (map (λ (C) (displayln (substs #'(a ...) #'(X- ...) (syntax-local-introduce C)))) (current-Cs))]
    #:with C (if (null? (current-Cs)) #'C0
                 ;; TODO: update orig: replace with X ...
                 (car (map (λ (C) (substs #'(X ...) #'(X- ...) (syntax-local-introduce C))) (current-Cs))))
-;   #:do [(printf "adding C: ~a\n" #'C)]
    -------
-   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X ...) τ_in ... τ_out #:when C)]]
+   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X ...) τ_in ... τ_out #:when C)]] ; TODO: should be (and C0 C)?
   [(_ ([x:id : τ_in:type] ...) e) ≫
    [[x ≫ x- : τ_in.norm] ... ⊢ e ≫ e- ⇒ τ_out]
    -------
    [⊢ (v:λ (x- ...) e-) ⇒ (→ τ_in.norm ... τ_out)]]
-  [(_ (x:id ...) e) ⇐ (~→ τ_in ... τ_out _) ≫ ; TODO: add forall? I think this is covered by 1st case and can be deleted
+  #;[(_ (x:id ...) e) ⇐ (~→ τ_in ... τ_out _) ≫ ; TODO: add forall? I think this is covered by 1st case and can be deleted
    [[x ≫ x- : τ_in] ... ⊢ e ≫ e- ⇐ τ_out]
    ---------
    [⊢ (v:λ (x- ...) e-)]])
 
 (define-typed-syntax typed-app
   [(_ e_fn e_arg ...) ≫ ;; must instantiate
-   ;; #:do [(printf "applied function: ~a\n" (stx->datum #'e_fn))]
    [⊢ e_fn ≫ e_fn- ⇒ (~∀ (X ...+) ~! (~→ τ_inX ... τ_outX CX))]
    #:fail-unless (stx-length=? #'[τ_inX ...] #'[e_arg ...])
                  (num-args-fail-msg #'e_fn #'[τ_inX ...] #'[e_arg ...])
    [⊢ e_arg ≫ _ ⇒ τ_arg] ...
    #:with (X+ty ...) (unify #'(τ_inX ...) #'(τ_arg ...))
-   ;; #:do[(printf "solved ~a: ~a\n" (stx->datum #'(X ...)) (stx->datum (lookup #'(X ...) #'(X+ty ...))))]
    #:with (τ_in ... τ_out C)
           (substs (lookup #'(X ...) #'(X+ty ...))
                   #'(X ...)
                   #'(τ_inX ... τ_outX CX))
-   ;; #:do [(printf "CX: ~a\n" (stx->datum #'CX))
-   ;;       (printf "C: ~a\n" (stx->datum #'C))]
    #:with C- ((current-type-eval) #'C)
    #:fail-unless (stx-e #'C-) (format "failed condition: ~a; inferred: ~a ~a\n"
                                       (stx->datum #'CX)
                                       (stx->datum #'(X ...))
                                       (stx->datum (lookup #'(X ...) #'(X+ty ...))))
-   #:do [#;(printf "C-: ~a\n" (stx->datum #'C-))
-         (unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
+   #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
            (current-Cs (cons #'C (current-Cs))))]
-   ;; #:fail-unless (typechecks? #'(τ_arg ...) #'(τ_in ...))
-   ;;               "TODO: change orig to inst"
    [⊢ e_arg ≫ e_arg- ⇐ τ_in] ... ; double expand?
    --------
    [⊢ (v:#%app e_fn- e_arg- ...) ⇒ τ_out]]
@@ -612,7 +599,6 @@
    --------
    [⊢ (v:#%app v:image f- #:length n-) ⇒ (Producer n)]])
 
-;; TODO: read clip at compile time
 (define-typed-syntax clip
   [(_ f:str) ≫ ; literal arg
    [⊢ f ≫ f- ⇐ String]
@@ -841,10 +827,8 @@
   [(_ v) ≫
    [⊢ v ≫ (~and v- (_ v--)) ⇐ String]
    #:with tmp (generate-temporary)
-   #:with tmp2 (generate-temporary)
    #:with vid (datum->syntax #'v 'vid)
    #:with vid-ty2 (datum->syntax #'v 'vid-ty2)
-   #:with vid-ty* (format-id #'vid-ty "~a~a" #'tmp #'vid-ty)
    [⊢ (let-syntax- ([tmp (make-variable-like-transformer
                           (syntax-property
                            #'(dynamic-require 'v 'vid)
@@ -853,33 +837,9 @@
                             #`(Producer (#%datum . #,(dynamic-require 'v 'vid-ty2)))
                             'expression null)))])
                    tmp)
-      ≫ (lv1 () (lv2 () e-)) ⇒ _]
+      ≫ (_ () (_ () e-)) ⇒ _] ; extract from let-values remnants of let-stx
    --------
    [≻ e-]])
-;;     (let-syntax- ([tmp (make-variable-like-transformer
-;;                         (syntax-property #'(dynamic-require 'v 'vid)
-;;                                          ': (dynamic-require 'v 'vid-ty2)))])
-;;         tmp)])])
-;; ;      #,(assign-type #'(v:#%app v:include-video v-) #'ty))]])
-;; ;    ⇒ Producer]
-;;    #;[≻ (let-syntax ([ty (dynamic-require-for-syntax 'v 'vid-ty)])
-;;         #,(assign-type #'(v:#%app v:include-video v-) #'ty))]
-   
-#;(define-typed-syntax provide-typeof
-  [(_ id:id) ≫
-   [⊢ id ≫ _ ⇒ ty]
-   #:with id-ty (format-id #'id "~a-ty" #'id)
-   -------
-   [≻ (begin-
-        (define-for-syntax id-ty #'ty)
-        (provide (for-syntax id-ty)))]])
-
-#;(define-typed-syntax new-provide
-  [(_ (~and y (rn [x x1]))) ≫
-   [⊢ x ≫ _ ⇒ ty]
-   #:do[(displayln #'x)(displayln (stx->datum #'ty))]
-   ----------
-   [≻ (v:provide y)]])
 
 (define-typed-syntax require-vid
   [(_ f)≫
