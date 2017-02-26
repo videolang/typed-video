@@ -29,3 +29,5 @@
     (define k* (string->symbol (stx-e k))) ; must be symbol, to get properly transferred around
     (define v* (stx-e v))
     (syntax-property stx k* v*)))
+
+(define (stx-datum=? x y) (equal? (stx->datum x) (stx->datum y)))

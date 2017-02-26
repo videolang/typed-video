@@ -476,17 +476,31 @@
                  (num-args-fail-msg #'e_fn #'[τ_inX ...] #'[e_arg ...])
    [⊢ e_arg ≫ _ ⇒ τ_arg] ...
    #:with (X+ty ...) (unify #'(τ_inX ...) #'(τ_arg ...))
+   #:with solved-tys (lookup #'(X ...) #'(X+ty ...))
    #:with (τ_in ... τ_out C)
-          (substs (lookup #'(X ...) #'(X+ty ...))
+          (substs #'solved-tys
                   #'(X ...)
                   #'(τ_inX ... τ_outX CX))
    #:with C- ((current-type-eval) #'C)
-   #:fail-unless (stx-e #'C-) (format "failed condition: ~a; inferred: ~a ~a\n"
-                                      (stx->datum #'CX)
-                                      (stx->datum #'(X ...))
-                                      (stx->datum (lookup #'(X ...) #'(X+ty ...))))
+   #:fail-unless (stx-e #'C-) (format "failed condition: ~a; inferred: ~a\n"
+                                      (type->str #'CX)
+                                      (string-join
+                                       (map (λ (X ty)
+                                              (syntax-parse ty
+                                                [(_ n)
+                                                 (string-append (type->str X) " = "
+                                                                (number->string (stx->datum #'n)))]))
+                                           (stx->list #'(X ...))
+                                           (stx->list #'solved-tys))
+                                       ","))
    #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
-           (current-Cs (cons #'C (current-Cs))))]
+           ;; update C's orig with instantiation
+           (define old-orig (get-orig #'C))
+           (define new-orig
+             (substs #'solved-tys #'(X ...) old-orig stx-datum=?))
+           (define C-with-new-orig
+             (syntax-property #'C 'orig (list new-orig)))
+           (current-Cs (cons C-with-new-orig (current-Cs))))]
    [⊢ e_arg ≫ e_arg- ⇐ τ_in] ... ; double expand?
    --------
    [⊢ (v:#%app e_fn- e_arg- ...) ⇒ τ_out]]
