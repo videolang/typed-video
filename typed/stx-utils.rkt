@@ -11,7 +11,7 @@
 
 (define (stx+ ns)    (apply + (stx->nums ns)))
 (define (stx>= ns)   (apply >= (stx->nums ns)))
-(define (stx- ns)    (apply - (stx->nums ns)))
+(define (stx- ns)    (if (stx-null? ns) 0 (apply - (stx->nums ns))))
 (define (stx/ ns)    (apply / (stx->nums ns)))
 (define (stx-max ns) (apply max (stx->nums ns)))
 (define (stx-min ns) (apply min (stx->nums ns)))
