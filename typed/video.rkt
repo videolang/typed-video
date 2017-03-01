@@ -34,8 +34,19 @@
 
 ; ≫ τ ⊢ ⇒ ⇐ ≻ ∀
 
-;; types ----------------------------------------------------------------------
+;; kinds ----------------------------------------------------------------------
 (define-syntax-category :: kind)
+(define-base-kinds kInt kNat)
+(begin-for-syntax
+  (define old-kind-rel (current-kindcheck-relation))
+  (define (kind-rel k1 k2)
+    ;; (printf "k1 = ~a\n" (stx->datum k1))
+    ;; (printf "k2 = ~a\n" (stx->datum k2))
+    (or (kind=? k1 k2)
+        (and (kNat? k1) (kInt? k2))))
+  (current-kindcheck-relation kind-rel))
+
+;; types ----------------------------------------------------------------------
 (define-base-types String Int Nat Num Bool Hash Void Filter)
 (define-type-constructor Listof)
 (define-binding-type ∀)
@@ -54,19 +65,46 @@
    -----------
    [≻ #,(add-orig #`(∀ () #,(mk-type #'(→- ty- ... #t))) #'(→ ty ...))]])
 (define-internal-type-constructor Producer)
-(define-syntax (Producer stx)
-  (syntax-parse stx
-    [_:id ; shorthand for inf length
-     (add-orig (mk-type #'(Producer- (v:#%datum . 99999))) stx)] ; TODO: make this inf?
-    [(_ n:exact-nonnegative-integer)
-     (add-orig (mk-type #'(Producer- n)) stx)]
-    [(_ n)
+;; should use def-kinded-stx but somewhat conflating types and kinds for convenience
+#;(define-typed-syntax Producer
+  [_:id ≫ ; shorthand for (Producer inf)
+   -------------
+   [≻ #,(add-orig (mk-type #'(Producer- (v:#%datum . 99999))) #'Producer)]] ; TODO: make this inf?
+  [(_ n:exact-nonnegative-integer) ≫ ; calls from impl?
+   ----------
+   [≻ #,(add-orig (mk-type #'(Producer- n)) #'(Producer n))]]
+  [(_ n) ≫ ; calls from user-code
+   [⊢ n ≫ n- ⇐ Int] ; must be Int, ow cant do subtraction; TODO: gen constraint
+   ----------------
+   [≻ #,(add-orig (mk-type #'(Producer- n-)) #'(Producer n))]]
+  #;[(_ n)
      #:with n- (expand/df #'n)
      #:when (typecheck? (typeof #'n-) ((current-type-eval) #'Int)) ; any Int *expression* is ok as the type
      (mk-type #'(Producer- n-))]
-    [(_ x) (type-error
-            #:src stx
-            #:msg "Producer: expected expression of type Int, given ~a" #'x)]))
+  [(~and p (_ x)) ≫
+   ----------
+   [#:error (type-error
+             #:src #'p
+             #:msg "Producer: expected arg of kind kInt, given ~a" #'x)]])
+;; using def-typed-stx for some reason messed up
+;; displaying (orig of) failed constraints in #%app ("n" instead of "n2")
+;; - not sure where the n even comes from since no examples in the tests use "n"
+;; using just def-stx fixes the problem even though the 2 defs look equal
+(define-syntax (Producer stx)
+  (syntax-parse stx
+  [_:id ; shorthand for (Producer inf)
+   (add-orig (mk-type #'(Producer- (v:#%datum . 99999))) #'Producer)]
+  [(_ n:exact-nonnegative-integer)
+   (add-orig (mk-type #'(Producer- n)) #'(Producer n))]
+  [(_ n)
+   #:with n- (expand/df #'n)
+   #:when (typecheck? (typeof #'n-) ((current-type-eval) #'Int))
+   ;; #:with n- (expand/df #'n)
+   ;;#:when (typecheck? (typeof #'n-) ((current-type-eval) #'Int)) ; any Int *expression* is ok as the type
+   (add-orig (mk-type #'(Producer- n-)) #'(Producer n))]
+  [(_ x) (type-error
+      #:src stx
+      #:msg "Producer: expected arg of kind kInt, given ~a" #'x)]))
 (define-internal-type-constructor Transition)
 (define-syntax (Transition stx)
   (syntax-parse stx
@@ -103,7 +141,7 @@
     ;; (printf "t1 = ~a\n" (stx->datum t1))
     ;; (printf "t2 = ~a\n" (stx->datum t2))
     (or
-     ((current-type=?) t1 t2)
+     (type=? t1 t2)
      (and (Int-ty? t1) (Num? t2))
      (and (Int-ty? t1) (Int? t2))
      (and (Nat-ty? t1) (Nat? t2))
@@ -149,7 +187,7 @@
       [((~literal quote) s:str) #'s]
       [((~literal quote) b:boolean) #'b]
       ;; if
-      [(~and orig ((~literal v:if) tst e1 e2))
+      #;[(~and orig ((~literal v:if) tst e1 e2))
        #:do [(define res ((current-type-eval) #'tst))]
        (if (boolean? res)
            (if res ((current-type-eval) #'e1)  ((current-type-eval) #'e2))
@@ -160,14 +198,14 @@
        #:with (~Producer n) (typeof #'p)
        #'n]
       ;; #%app get-property
-      [(~and orig ((~literal #%plain-app) _ p k))
+      #;[(~and orig ((~literal #%plain-app) _ p k))
        #:with (~literal v:get-property) (syntax-property this-syntax 'orig-app)
        #:do [(define k* (stx-e ((current-type-eval) #'k)))]
        #:when (string? k*)
        #:do [(define v (syntax-property #'p (string->symbol k*)))]
        (or v #'orig)]
       ;; #%app equal?
-      [(~and orig ((~literal #%plain-app) (~literal v:equal?) e1 e2))
+      #;[(~and orig ((~literal #%plain-app) (~literal v:equal?) e1 e2))
        #:with e1+ ((current-type-eval) #'e1)
        #:with e2+ ((current-type-eval) #'e2)
        (if (and (lit-stx? #'e1+) (lit-stx? #'e2+))
@@ -181,7 +219,7 @@
               (stx-map (current-type-eval) #'args)
        (stx>= #'ns)]
       ;; #%app +
-      [((~literal #%plain-app) (~literal v:+) . args)
+      #;[((~literal #%plain-app) (~literal v:+) . args)
        #:with ((~or n:integer
                     ((~literal quote) m:integer)
                     other) ...) ; collect unsolved terms
@@ -190,7 +228,7 @@
            (+ (stx+ #'(n ...)) (stx+ #'(m ...)))
            #`(#%plain-app v:+ #,(+ (stx+ #'(n ...)) (stx+ #'(m ...))) other ...))]
       ;; #%app -
-      [((~literal #%plain-app) (~literal v:-) . args)
+      #;[((~literal #%plain-app) (~literal v:-) . args)
        #:with (~and ns
                    ((~or _:exact-nonnegative-integer
                     ((~literal quote) _:exact-nonnegative-integer))...))
@@ -289,20 +327,75 @@
   #;[_:id ≫ ; HO use is binary
    ----------
    [⊢ v:+ ⇒ (→ Int Int)]]
+  #;[((~literal #%plain-app) (~literal v:+) . args)
+       #:with ((~or n:integer
+                    ((~literal quote) m:integer)
+                    other) ...) ; collect unsolved terms
+       (stx-map (current-type-eval) #'args)
+       (if (stx-null? (attribute other))
+           (+ (stx+ #'(n ...)) (stx+ #'(m ...)))
+           #`(#%plain-app v:+ #,(+ (stx+ #'(n ...)) (stx+ #'(m ...))) other ...))]
+  ;; TODO: remove dup code between Nat and Int
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Nat] ...
+   #:with ((~or n:exact-nonnegative-integer
+                ((~literal quote) m:exact-nonnegative-integer)
+                other)
+           ...)
+           (stx-map (current-type-eval) #'(e- ...)) ;; TODO: remove type-ev; expanding should be enough?
+   ;; #:do[(displayln #'(m ...))
+   ;;      (displayln #'(other ...))]
+   #:with res (if (stx-null? (attribute other))
+                  #`#,(+ (stx+ #'(n ...)) (stx+ #'(m ...)))
+                  #`(v:#%app v:+ #,(+ (stx+ #'(n ...)) (stx+ #'(m ...))) other ...))
+;   #:do[(displayln #'res)]
    ----------
-   [⊢ (v:#%app v:+ e- ...) ⇒ Nat]]
+   [⊢ res #;(v:#%app v:+ 'res other ...) ⇒ Nat]]
   [(_ e ...) ≫
+   [⊢ e ≫ e- ⇐ Int] ...
+   #:with ((~or n:integer
+                ((~literal quote) m:integer)
+                other)
+           ...)
+           (stx-map (current-type-eval) #'(e- ...)) ;; TODO: remove type-ev; expanding should be enough?
+   #:with res (if (stx-null? (attribute other))
+                  #`#,(+ (stx+ #'(n ...)) (stx+ #'(m ...)))
+                  #`(v:#%app v:+ #,(+ (stx+ #'(n ...)) (stx+ #'(m ...))) other ...))
+   ----------
+   [⊢ res #;(v:#%app v:+ 'res other ...) ⇒ Int]]
+  #;[(_ e ...) ≫
+   [⊢ e ≫ e- ⇐ Int] ...
+   #:do[(printf "e-: ~a\n" #'(e- ...))]
+   #:with ((~or n:integer ((~literal quote) m:integer) other) ...) (stx-map (current-type-eval) #'(e- ...))
+   #:do[(printf "m: ~a\n" #'(m ...))]
+   #:with res (if (stx-null? (attribute other))
+                  #`'#,(stx+ #'(m ...))
+                  #`(v:#%app v:+ '#,(stx+ #'(m ...)) other ...))
+   #:do[(displayln #'res)]
+   ----------
+   [⊢ res #;(v:#%app v:+ 'res other ...) ⇒ Int]]
+  #;  [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
    [⊢ (v:#%app v:+ e- ...) ⇒ Nat]])
 
 (define-typed-syntax -
-  [_:id ≫ ; HO use is binary
+  #;[_:id ≫ ; HO use is binary
    ----------
    [⊢ v:- ⇒ (→ Int Int)]]
   [(_ e ...) ≫
+   [⊢ e ≫ e- ⇐ Int] ...
+   #:with ((~or n:integer
+                ((~literal quote) m:integer)
+                other)
+           ...)
+           (stx-map (current-type-eval) #'(e- ...)) ;; TODO: remove type-ev; expanding should be enough?
+   #:with res (if (stx-null? (attribute other))
+                  #`#,(+ (stx- #'(n ...)) (stx- #'(m ...)))
+                  #`(v:#%app v:+ #,(+ (stx- #'(n ...)) (stx- #'(m ...))) other ...))
+   ----------
+   [⊢ res #;(v:#%app v:+ 'res other ...) ⇒ Int]]
+  #;[(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
    [⊢ (v:#%app v:- e- ...) ⇒ Int]])
@@ -323,9 +416,20 @@
 
 (define-typed-syntax equal?
   [(_ e1 e2) ≫
+   #;[(~and orig ((~literal #%plain-app) (~literal v:equal?) e1 e2))
+       #:with e1+ ((current-type-eval) #'e1)
+       #:with e2+ ((current-type-eval) #'e2)
+       (if (and (lit-stx? #'e1+) (lit-stx? #'e2+))
+           (equal? (stx-e #'e1+) (stx-e #'e2+))
+           #'orig)]
    [⊢ e1 ≫ e1- ⇒ _] [⊢ e2 ≫ e2- ⇒ _]
+   #:with e1+ ((current-type-eval) #'e1-)
+   #:with e2+ ((current-type-eval) #'e2-)
+   #:with res (if (and (lit-stx? #'e1+) (lit-stx? #'e2+))
+                  #`#,(equal? (stx-e #'e1+) (stx-e #'e2+))
+                  #'(v:#%app v:equal? e1- e2-))
    ----------
-   [⊢ (v:#%app v:equal? e1- e2-) ⇒ Bool]])
+   [⊢ res #;(v:#%app v:equal? e1- e2-) ⇒ Bool]])
 
 (define-typed-syntax >=
   [_:id ≫ ; HO use is binary
@@ -406,13 +510,17 @@
    [⊢ (v:#%app v:hash e- ...) ⇒ Hash]])
 
 ;; Racket core forms ----------------------------------------------------------
+
+;; #%datum macro for both types and terms
 (define-typed-syntax #%datum
   [(_ . n:exact-nonnegative-integer) ≫ ; use singleton types
    --------
-   [⊢ (v:#%datum . n) ⇒ #,(add-orig (assign-kind #'(v:#%datum . n) #'Nat) #'n)]]
+   [⊢ (v:#%datum . n) ⇒ #,(add-orig (assign-kind #'(v:#%datum . n) #'kNat) #'n)
+                      #;(⇒ :: #'Nat)]]
   [(_ . n:integer) ≫ ; use singleton types
    --------
-   [⊢ (v:#%datum . n) ⇒ #,(add-orig (assign-kind #'(v:#%datum . n) #'Int) #'n)]]
+   [⊢ (v:#%datum . n) ⇒ #,(add-orig (assign-kind #'(v:#%datum . n) #'kInt) #'n)
+                      #;(⇒ :: #'Int)]]
   [(_ . n:number) ≫
    --------
    [⊢ (v:#%datum . n) ⇒ Num]]
@@ -505,7 +613,7 @@
 
 (define-typed-syntax typed-app
   [(_ e_fn e_arg ...) ≫ ;; must instantiate
-   [⊢ e_fn ≫ e_fn- ⇒ (~∀ (X ...+) ~! (~→ τ_inX ... τ_outX CX))]
+   [⊢ e_fn ≫ e_fn- ⇒ (~and ty-orig (~∀ (X ...+) ~! (~→ τ_inX ... τ_outX CX)))]
    #:fail-unless (stx-length=? #'[τ_inX ...] #'[e_arg ...])
                  (num-args-fail-msg #'e_fn #'[τ_inX ...] #'[e_arg ...])
    [⊢ e_arg ≫ _ ⇒ τ_arg] ...
@@ -581,18 +689,32 @@
        ((current-join) τ τ2))]))
 
 (define-typed-syntax if
+  #;[(~and orig ((~literal v:if) tst e1 e2))
+       #:do [(define res ((current-type-eval) #'tst))]
+       (if (boolean? res)
+           (if res ((current-type-eval) #'e1)  ((current-type-eval) #'e2))
+           #'orig)]
   [(_ e_tst e1 e2) ⇐ τ-expected ≫
    [⊢ e_tst ≫ e_tst- ⇒ _] ; Any non-false value is truthy.
    [⊢ e1 ≫ e1- ⇐ τ-expected]
    [⊢ e2 ≫ e2- ⇐ τ-expected]
+   #:do[(define tst-val ((current-type-eval) #'e_tst-))]
+   #:with res (if (boolean? (stx-e tst-val))
+                  (if (stx-e tst-val) ((current-type-eval) #'e1-) ((current-type-eval) #'e2-))
+                  #'(v:if e_tst- e1- e2-))
    --------
-   [⊢ (v:if e_tst- e1- e2-)]]
+   [⊢ res #;(v:if e_tst- e1- e2-)]]
   [(_ e_tst e1 e2) ≫
    [⊢ e_tst ≫ e_tst- ⇒ _] ; Any non-false value is truthy.
    [⊢ e1 ≫ e1- ⇒ τ1]
    [⊢ e2 ≫ e2- ⇒ τ2]
+   #:do[(define tst-val ((current-type-eval) #'e_tst-))]
+   #:with res (if (boolean? (stx-e tst-val))
+                  (if (stx-e tst-val) ((current-type-eval) #'e1-) ((current-type-eval) #'e2-))
+                  #'(v:if e_tst- e1- e2-))
+   #:with res-ty (if (boolean? (stx-e tst-val)) (if (stx-e tst-val) #'τ1 #'τ2) #'(⊔ τ1 τ2))
    --------
-   [⊢ (v:if e_tst- e1- e2-) ⇒ (⊔ τ1 τ2)]])
+   [⊢ res #;(v:if e_tst- e1- e2-) ⇒ res-ty #;(⊔ τ1 τ2)]])
 
 (define-typed-syntax let
   [(_ ([x e] ...) e_body ...) ⇐ τ_expected ≫
@@ -619,7 +741,7 @@
 ;; basic Video producers ------------------------------------------------------
 (define-typed-syntax blank
   [(_ n) ≫
-   [⊢ n ≫ n- ⇐ Int]
+   [⊢ n ≫ n- ⇐ Nat]
    --------
    [⊢ (v:#%app v:blank n-) ⇒ (Producer n)]])
 
@@ -837,9 +959,15 @@
   [(_ p k) ≫
    [⊢ p ≫ p- ⇐ Producer]
    [⊢ k ≫ k- ⇐ String]
+   #:do [(define k* (stx-e ((current-type-eval) #'k-)))]
+   #:with res (if (string? k*)
+                  (let ([v (syntax-property #'p- (string->symbol k*))])
+                    (or #`#,v #'(v:#%app v:get-property p- k-)))
+                  #'(v:#%app v:get-property p- k-))
    --------
    [⊢ #,(syntax-property
-         #'(v:#%app v:get-property p- k-)
+         #'res
+;         #'(v:#%app v:get-property p- k-)
          'orig-app #'v:get-property) ⇒ String]]
   [(_ p k (_ (~datum int))) ≫
    [⊢ p ≫ p- ⇐ Producer]
