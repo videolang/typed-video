@@ -1,0 +1,55 @@
+##### 2017-03-01
+
+Should type-eval be (1) a separate function or (2) integrated into the type rules?
+
+Ie, (1) = normalize expanded types, (2) = normalize surface types
+
+(2) implies "expansion = type-eval"?
+
+I think (2) is the better approach.
+
+It mostly works, BUT it's only useful if we only ever type-eval surface terms, which is not true.
+E.g., (already-expanded) polymorphic types:
+- after instantiation, we must type-eval again.
+- re-expanding after instantiation won't trigger the normalizations
+  - solution? use the orig to instantiate?
+    - this is dangerous since relying on the binders in the orig may encounter the stxprop+binders problem
+
+Falling back to (1).
+
+##### 2017-02-28
+
+Should types and kinds be (1) conflated or (2) distinct?
+
+
+- current using (1)
+
+
+(1) conflated
+Pros: --------------------
+- want to write rules like:
+
+(define-typed-syntax blank
+  [(_ n) ≫
+   [⊢ n ≫ n- ⇐ Nat]
+   --------
+   [⊢ (v:#%app v:blank n-) ⇒ (Producer n)]])
+
+and have it work for exprs like:
+
+(blank (+ 1 2))
+
+Ie, want to seamlessly lift expr n into type.
+
+If there is a separate type constructor for addition, eg ty+ ,
+then we need a more explicit lifting step which could be more awkward.
+
+Cons: --------------------
+- harder to use in define-typed-stx constructs
+ - eg macro for Producer constructor is somewhat ugly
+
+(2) distinct
+Pros: --------------------
+- easier to reason about?
+
+Cons: --------------------
