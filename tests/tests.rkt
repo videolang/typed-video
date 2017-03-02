@@ -5,6 +5,14 @@
 (check-not-type (blank 1) : (Producer 2)) ; longer type not ok
 (typecheck-fail (Producer Int)
  #:with-msg "Producer: expected expression of type Int, given Int")
+(typecheck-fail
+ (Producer -1)
+ #:with-msg
+ (add-escs "Producer: expression has type (Producer -1), which fails side-condition: (>= -1 0)"))
+(typecheck-fail
+ (Producer (- 1 2))
+ #:with-msg
+ (add-escs "Producer: expression has type (Producer (- 1 2)), which fails side-condition: (>= (- 1 2) 0)"))
 (check-not-type (blank (+ 1 2)) : Producer)
 (check-type (blank (+ 1 2)) : (Producer 3))
 

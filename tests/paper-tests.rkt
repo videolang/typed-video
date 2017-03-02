@@ -300,12 +300,18 @@
 
 (typecheck-fail
  (make-conf-talk (blank 200) (blank 200) (color "green") 0)
- #:with-msg "failed condition: \\(>= n2 400\\); inferred: n2 = 200")
+ #:with-msg (add-escs "#%app: while applying fn make-conf-talk;\nfailed condition: (>= n2 400);\ninferred: n2 = 200"))
 
 (check-type (cut-producer (blank 100) #:start 10 #:end 20) : (Producer 11))
 
 ;; start too high
-(typecheck-fail (cut-producer (blank 9) #:start 10 #:end 20)
- #:with-msg "cut\\-producer\\: type mismatch\\: expected \\(Producer 10\\), given \\(Producer 9\\)")
-(typecheck-fail (cut-producer (blank 9) #:start 8 #:end 20)
- #:with-msg "cut\\-producer\\: type mismatch\\: expected \\(Producer 13\\), given \\(Producer 9\\)")
+(typecheck-fail
+ (cut-producer (blank 9) #:start 10 #:end 20)
+ #:with-msg
+ (add-escs
+  "cut-producer: type mismatch: expected (Producer 10), given (Producer 9)"))
+(typecheck-fail
+ (cut-producer (blank 9) #:start 8 #:end 20)
+ #:with-msg
+ (add-escs
+  "cut-producer: type mismatch: expected (Producer (+ 1 (- 20 8))), given (Producer 9)"))
