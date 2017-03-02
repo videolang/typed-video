@@ -13,12 +13,12 @@
 (provide/types
  λ #%datum define begin if let let* displayln
  + - min max <= >= < >
- list car cdr null null? hash equal?
+ list car cdr null null? hash equal? and
  blank color image clip multitrack playlist include-video
  composite-transition fade-transition
  scale-filter attach-filter grayscale-filter cut-producer
  get-property set-property producer-length)
-(provide top-level-playlist require-vid
+(provide top-level-playlist require-vid #%type
          (rename-out [typed-app #%app]) /
          AnyProducer Producer Transition Filter (for-syntax ~Producer)
          Int Num Bool String Listof Hash Void →
@@ -60,9 +60,17 @@
      (add-orig (mk-type #'(Producer- (v:#%datum . 99999))) stx)] ; TODO: make this inf?
     [(_ n:exact-nonnegative-integer)
      (add-orig (mk-type #'(Producer- n)) stx)]
-    [(_ n)
-     #:with n- (expand/df #'n)
+    [(_ n) ; must accept Ints (as opposed to restricting to Nats), for -, etc
+     #:with n- (expand/df #'n) 
+     ;; check type
      #:when (typecheck? (typeof #'n-) ((current-type-eval) #'Int)) ; any Int *expression* is ok as the type
+     ;; commit to this clause, then check or propagate constraint
+     #:with (~and ~! C-) ((current-type-eval) #'(>= n- 0))
+     #:fail-unless (stx-e #'C-) (format "failed side-condition: ~a" (stx->datum #'(>= n 0)))
+     ;; n- and C- must go through the same expansion, but type-eval also expands
+     ;; so be careful here
+     ;; #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
+     ;;         (current-Cs (cons #'(>= n- 0) (current-Cs))))]
      (mk-type #'(Producer- n-))]
     [(_ x) (type-error
             #:src stx
@@ -102,19 +110,24 @@
   (define (new-type-rel t1 t2)
     ;; (printf "t1 = ~a\n" (stx->datum t1))
     ;; (printf "t2 = ~a\n" (stx->datum t2))
+    ;; (printf "t1* = ~a\n" (stx->datum ((current-type-eval) t1)))
+    ;; (printf "t2* = ~a\n" (stx->datum ((current-type-eval) t2)))
     (or
      ((current-type=?) t1 t2)
      (and (Int-ty? t1) (Num? t2))
      (and (Int-ty? t1) (Int? t2))
      (and (Nat-ty? t1) (Nat? t2))
      (syntax-parse (list t1 t2)
+      [(((~literal #%expression) e) _) (typecheck? #'e t2)] ; and generates these?
+      [(_ ((~literal #%expression) e)) (typecheck? t1 #'e)] ; and generates these?
       [((~Listof x) (~Listof y))         (typecheck? #'x #'y)]
       [((~Producer m) (~Producer n))     (typecheck? #'m #'n)]
       [((~Transition m) (~Transition n)) (typecheck? #'m #'n)]
       [((~∀ Xs t1) (~∀ Ys t2))
         (and (stx-length=? #'Xs #'Ys)
              (typecheck? (substs #'Ys #'Xs #'t1) #'t2))]
-      [((~→ i ... o c) (~→ j ... p d)) (typechecks? #'(j ... o c) #'(i ... p d))]
+      ;; TODO: enable checking of constraints in fns
+      [((~→ i ... o c) (~→ j ... p d)) (typechecks? #'(j ... o) #'(i ... p))]
       [(((~literal quote) m:number) ((~literal quote) n:number))
        (>= (stx-e #'m) (stx-e #'n))]   ; longer vid is "more precise"
       [(((~literal quote) b1:boolean) ((~literal quote) b2:boolean))
@@ -148,11 +161,12 @@
       [((~literal quote) n:exact-nonnegative-integer) (assign-kind #'n #'Nat)]
       [((~literal quote) s:str) #'s]
       [((~literal quote) b:boolean) #'b]
+      [((~literal #%expression) e) ((current-type-eval) #'e)] ; and generates these #%exprs?
       ;; if
       [(~and orig ((~literal v:if) tst e1 e2))
        #:do [(define res ((current-type-eval) #'tst))]
-       (if (boolean? res)
-           (if res ((current-type-eval) #'e1)  ((current-type-eval) #'e2))
+       (if (boolean? (stx-e res))
+           (if (stx-e res) ((current-type-eval) #'e1)  ((current-type-eval) #'e2))
            #'orig)]
       ;; #%app producer-length
       [((~literal #%plain-app) _ p)
@@ -171,13 +185,13 @@
        #:with e1+ ((current-type-eval) #'e1)
        #:with e2+ ((current-type-eval) #'e2)
        (if (and (lit-stx? #'e1+) (lit-stx? #'e2+))
-           (equal? (stx-e #'e1+) (stx-e #'e2+))
+           #`#,(equal? (stx-e #'e1+) (stx-e #'e2+))
            #'orig)]
       ;; #%app >=
       [((~literal #%plain-app) (~literal v:>=) . args)
        #:with (~and ns
-                   ((~or _:exact-nonnegative-integer
-                         ((~literal quote) _:exact-nonnegative-integer))...))
+                   ((~or _:integer
+                         ((~literal quote) _:integer))...))
               (stx-map (current-type-eval) #'args)
        (stx>= #'ns)]
       ;; #%app +
@@ -326,6 +340,12 @@
    [⊢ e1 ≫ e1- ⇒ _] [⊢ e2 ≫ e2- ⇒ _]
    ----------
    [⊢ (v:#%app v:equal? e1- e2-) ⇒ Bool]])
+
+(define-typed-syntax and
+  [(_ e ...) ≫
+   [⊢ e ≫ e- ⇒ _] ...
+   ----------
+   [⊢ (v:and e- ...) ⇒ Bool]])
 
 (define-typed-syntax >=
   [_:id ≫ ; HO use is binary
@@ -488,12 +508,25 @@
    #:when (syntax-e #'expected-ty)
    #:with (~∀ (X ...) (~→ τ_in ... τ_out C0)) #'expected-ty
    #:do[(current-Cs '())] ; reset Cs; this is essentially parameterize
-   [([X ≫ X- : Int] ...) ([x ≫ x- : τ_in] ...) ⊢ e ≫ e- ⇐ τ_out]
-   #:with C (if (null? (current-Cs)) #'C0
+   [([X ≫ X- : Int] ...) ([x ≫ x- : τ_in] ...) ⊢ [e ≫ e- ⇐ τ_out] [τ_in ≫ τ_in- ⇒ _] ... [τ_out ≫ τ_out- ⇒ _] [C0 ≫ C0- ⇒ _]]
+   #:with new-orig
+          (if (equal? #t (stx-e (stx-cadr #'C0-)))
+                       (cond [(null? (current-Cs)) #'()]
+                             [(= 1 (length (current-Cs)))
+                              (printf "1: ~a\n" (get-orig (car (current-Cs))))
+                              (get-orig (car (current-Cs)))]
+                             [else #`(and #,@(map get-orig (current-Cs)))])
+                       (if (null? (current-Cs))
+                           (get-orig #'C0)
+                           #`(and #,(get-orig #'C0) #,@(map get-orig (current-Cs)))))
+   #:with C (add-orig
+             #`(and C0- #,@(map syntax-local-introduce (current-Cs)))
+             #'new-orig)
+               #;(if (null? (current-Cs)) #'C0-
                 ;; TODO: update orig: replace with X ...
-                (car (map (λ (C) (substs #'(X ...) #'(X- ...) (syntax-local-introduce C))) (current-Cs))))
+                (car (map (λ (C) (syntax-local-introduce C) #;(substs #'(X ... x ...) #'(X- ... x- ...) (syntax-local-introduce C))) (current-Cs))))
    -------
-   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X ...) τ_in ... τ_out #:when C)]] ; TODO: should be (and C0 C)?
+   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X- ...) τ_in- ... τ_out- #:when C)]] ; TODO: should be (and C0 C)?
   [(_ ([x:id : τ_in:type] ...) e) ≫
    [[x ≫ x- : τ_in.norm] ... ⊢ e ≫ e- ⇒ τ_out]
    -------
@@ -516,6 +549,7 @@
                   #'(X ...)
                   #'(τ_inX ... τ_outX CX))
    #:with C- ((current-type-eval) #'C)
+   ;; TODO: improve this constraint check/propagate code
    #:fail-unless (stx-e #'C-) (format "failed condition: ~a; inferred: ~a\n"
                                       (type->str #'CX)
                                       (string-join
