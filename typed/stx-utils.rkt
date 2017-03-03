@@ -17,6 +17,8 @@
 (define (stx-min ns) (apply min (stx->nums ns)))
 
 (define stx-e syntax-e)
+(define stx? syntax?)
+(define fmt format)
 
 (define (stx-filter-out-false . stxs)
   (filter

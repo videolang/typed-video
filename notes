@@ -1,3 +1,56 @@
+##### 2017-03-02
+
+Is allowing a Nat type actually useful?
+
+If we want to allow subtraction of producer lengths, then Nat seems
+more cumbersome than useful.
+
+##### 2017-03-02
+
+type-eval must return syntax, not literals, even for singletons,
+otherwise, they wont work as types
+
+##### 2017-03-02
+
+Q: Should arith exprs have singleton types?
+
+Current design decision: Yes
+
+Yes:
+- dont need to special case in ty-eval
+  - still need tyeval anyways?
+  - could move arith canonicalization to type rule?
+- rule impl looks more awk in order to avoid looping
+  - ie, arith exprs and datums need explicit lifting
+  - see #%datum, +, -, etc...
+
+No:
+- wont be able to ty-eval vars
+
+Q: This means some "types" will have singleton kinds,
+ie, if an arith expr is written directly in a type, eg in fn sig.
+Where to add the checking for this? separate fn or in typecheck?
+
+Current design decition: Must be in typecheck, for rules that use "⇐ Int"
+
+##### 2017-03-02
+
+Q: Should tyvars have "type" (1) Int or (2) Nat?
+
+Current design decision: Using (1) Int.
+
+(1) Int
+- allows doing subtraction, eg (Producer (- n m))
+- must generate implicit constraint?,
+  eg, (define (f {n} [p : (Producer n)) -> (Producer (- n 1))))
+    - must produce constraint (>= (- n 1) 0)
+
+(2) Nat
+- subtraction disallowed
+- can get away with not generating extra constraints?
+
+
+
 ##### 2017-03-01
 
 Should type-eval be (1) a separate function or (2) integrated into the type rules?
@@ -22,7 +75,7 @@ Falling back to (1).
 Should types and kinds be (1) conflated or (2) distinct?
 
 
-- current using (1)
+Current design decision: using (1)
 
 
 (1) conflated
@@ -46,7 +99,15 @@ then we need a more explicit lifting step which could be more awkward.
 
 Cons: --------------------
 - harder to use in define-typed-stx constructs
- - eg macro for Producer constructor is somewhat ugly
+  - ie, how to check type-wellformedness?
+    - must check for either ":: #%type"
+    - or ": Int"
+  - eg macro for Producer constructor is somewhat ugly
+- Some arith types are arith exprs lifted to type level (see blank rule in Pros)
+  and some are directly written as types (eg fn signature).
+  The latter will have singleton type (see singleton type above), 
+  so ty= must handle comparison between arith expr and type
+  - eg ty=? (+ 1 2) Int = ???
 
 (2) distinct
 Pros: --------------------
