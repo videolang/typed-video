@@ -32,10 +32,13 @@
 ;; - 2017-02-13: #%module-begin define lifting not working for typed define
 ;;               DONE 2017-02-24
 ;; - 2017-03-03: most Nats (eg, for #:length args) should be Ints
-;; - 2017-03-03: change #:end to be exclusive
+;; - 2017-03-03: change #:end's to be exclusive
+;; - 2017-03-03: use actual +inf.0 instead of 99999
 
-;; NOTES:
-;; if getting "bad syntax" on ids, look for stx+, eg in playlist or multitrack
+;; debugging NOTES:
+;; 1) err: "bad syntax" on ids: look for stx+, eg in playlist or multitrack
+;; 2) err: "expected Int": check type-eval for that case calls mk-type/Int
+;; 3) err: "expected stx": check type-eval returns stx or that case
 
 ; ≫ τ ⊢ ⇒ ⇐ ≻ ∀ → (fn)
 
@@ -672,7 +675,7 @@
    #:with (τ_in ... τ_out C)
           (substs #'solved-tys
                   #'(X ...)
-                  #'(τ_inX ... τ_outX CX) bound-id=? #f)
+                  #'(τ_inX ... τ_outX CX))
    #:with C- ((current-type-eval) #'C)
    ;; #:do[(printf "constraint POLY: ~a\n" (stx->datum #'CX))
    ;;      (printf "constraint POLY (orig): ~a\n" (type->str #'CX))
@@ -705,7 +708,7 @@
               (list (substs #'solved-tys
                             #'(X ...)
                             (get-orig e)
-                            stx-datum=? #f))))
+                            stx-datum=?))))
            ;; update C's orig with instantiation
            (define C-with-new-orig
              (let L ([C #'C])
