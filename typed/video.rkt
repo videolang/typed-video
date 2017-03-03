@@ -31,6 +31,8 @@
 ;; - 2017-02-26: λ/video still not working
 ;; - 2017-02-13: #%module-begin define lifting not working for typed define
 ;;               DONE 2017-02-24
+;; - 2017-03-03: most Nats (eg, for #:length args) should be Ints
+;; - 2017-03-03: change #:end to be exclusive
 
 ;; NOTES:
 ;; if getting "bad syntax" on ids, look for stx+, eg in playlist or multitrack
@@ -100,7 +102,6 @@
     [(_ n:exact-nonnegative-integer)
      (add-orig (mk-type #'(Producer- n)) stx)]
     [(_ n) ; must accept Ints (as opposed to restricting to Nats), for -, etc
-;     #:do[(printf "n: ~a\n" (stx->datum #'n))]
      #:with n- (pass-orig ((current-type-eval) #'n) #'n)
      ;; #:do[(printf "n-: ~a\n" (stx->datum #'n-))
      ;;      (printf "n- ty: ~a\n" (typeof #'n-))]
@@ -113,12 +114,14 @@
      #:fail-unless (stx-e #'C-)
                    (fmt "expression has type ~a, which fails side-condition: ~a"
                         (stx->datum this-syntax) (stx->datum #'(>= n 0)))
-     ;; n- and C- must go through the same expansion, but type-eval also expands
+     ;; - Producer must propagate constraint bc instatiation wont expand surface-lvl
+     ;; Producer, ie arg wont be re-checked to satisfy >= 0
+     ;; - n- and C- must go through the same expansion, but type-eval also expands
      ;; so be careful here
      #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
              (current-Cs (cons (add-orig #'(v:#%app v:>= n- 0) #`(>= #,(get-orig #'n-) 0))
                                (current-Cs))))]
-     (mk-type #'(Producer- n-))]
+     (add-orig (mk-type #'(Producer- n-)) stx)]
     [(_ x) (type-error
             #:src stx
             #:msg "Producer: expected expression of type Int, given ~a with type ~a"
@@ -198,6 +201,11 @@
        (and (free-id=? #'op1 #'op2)
             (stx-length=? #'xs #'ys)
             (typechecks? #'xs #'ys))]
+      ;; 2 Int exprs, not stx=?, so generate constraint
+      [_ #:when (and (arith-type? t1) (arith-type? t2))
+         #:do[(current-Cs (cons (add-orig #`(>= #,t1 #,t2) #`(>= #,(get-orig t1) #,(get-orig t2)))
+                                (current-Cs)))]
+       #t]
       [_ #f]))))
   (current-typecheck-relation new-type-rel)
   
@@ -217,7 +225,7 @@
                             (and (id? k-as-ty) (typecheck/Int? (typeof k-as-ty)))))); tyvar
           (mk-type/Int (typeof #'t+))]
       ;; number literals
-      [((~literal quote) n:exact-nonnegative-integer) (assign-kind #'n #'Nat)]
+      [((~literal quote) n:exact-nonnegative-integer) (assign-type #'n #'Nat)]
       [((~literal quote) s:str) #'s]
       [((~literal quote) b:boolean) #'b]
       [((~literal #%expression) e) ((current-type-eval) #'e)] ; and generates these #%exprs?
@@ -238,7 +246,7 @@
        #:do [(define k* (stx-e ((current-type-eval) #'k)))]
        #:when (string? k*)
        #:do [(define v (syntax-property #'p (string->symbol k*)))]
-       (or v #'orig)]
+       (or (and v #`#,v) #'orig)]
       ;; #%app equal?
       [(~and orig ((~literal #%plain-app) (~literal v:equal?) e1 e2))
        #:with e1+ ((current-type-eval) #'e1)
@@ -252,36 +260,44 @@
                    ((~or _:integer
                          ((~literal quote) _:integer))...))
               (stx-map (current-type-eval) #'args)
-       (stx>= #'ns)]
+       #`#,(stx>= #'ns)]
+      [((~literal #%plain-app) (~literal v:<=) . args)
+       #:with (~and ns
+                   ((~or _:integer
+                         ((~literal quote) _:integer))...))
+              (stx-map (current-type-eval) #'args)
+       #`#,(stx<= #'ns)]
       ;; #%app +
       [((~literal #%plain-app) (~literal v:+) . args)
        #:with ((~or n:integer
                     ((~literal quote) m:integer)
                     other) ...) ; collect unsolved terms
-       (stx-map (current-type-eval) #'args)
-       (if (stx-null? (attribute other))
-           (mk-type/Int #`#,(+ (stx+ #'(n ...)) (stx+ #'(m ...))))
-           #`(#%plain-app v:+ #,(+ (stx+ #'(n ...)) (stx+ #'(m ...))) other ...))]
+              (stx-map (current-type-eval) #'args)
+       (mk-type/Int
+        (if (stx-null? (attribute other))
+            #`#,(+ (stx+ #'(n ...)) (stx+ #'(m ...)))
+            #`(#%plain-app v:+ #,(+ (stx+ #'(n ...)) (stx+ #'(m ...))) other ...)))]
       ;; #%app -
       [((~literal #%plain-app) (~literal v:-) a0 . args)
        #:with ((~or n:integer
                     ((~literal quote) m:integer)
                     other) ...) ; collect unsolved terms
-              (stx-map (current-type-eval) #'args)
-       (syntax-parse ((current-type-eval) #'a0)
-         [n0:integer
-          #:with tmp #`#,(- (stx-e #'n0) (stx+ #'(n ...)) (stx+ #'(m ...)))
-          (if (stx-null? (attribute other))
-              #'tmp
-              #`(#%plain-app v:- tmp other ...))]
-         [((~literal quote) n0:integer)
-          #:with tmp #`#,(- (stx-e #'n0) (stx+ #'(n ...)) (stx+ #'(m ...)))
-          (if (stx-null? (attribute other))
-              #'tmp
-              #`(#%plain-app v:- tmp other ...))]
-         [o0
-          #:with tmp #`#,(+ (stx+ #'(n ...)) (stx+ #'(m ...)))
-          (mk-type/Int #`(#%plain-app v:- o0 tmp other ...))])]
+                    (stx-map (current-type-eval) #'args)
+       (mk-type/Int
+        (syntax-parse ((current-type-eval) #'a0)
+          [n0:integer
+           #:with tmp #`#,(- (stx-e #'n0) (stx+ #'(n ...)) (stx+ #'(m ...)))
+           (if (stx-null? (attribute other))
+               #'tmp
+               #`(#%plain-app v:- tmp other ...))]
+          [((~literal quote) n0:integer)
+           #:with tmp #`#,(- (stx-e #'n0) (stx+ #'(n ...)) (stx+ #'(m ...)))
+           (if (stx-null? (attribute other))
+               #'tmp
+               #`(#%plain-app v:- tmp other ...))]
+          [o0
+           #:with tmp #`#,(+ (stx+ #'(n ...)) (stx+ #'(m ...)))
+           #`(#%plain-app v:- o0 tmp other ...)]))]
       #;[((~literal #%plain-app) (~literal v:-) . args)
        #:with (~and ns
                    ((~or _:exact-nonnegative-integer
@@ -294,23 +310,30 @@
                    ((~or _:exact-nonnegative-integer
                     ((~literal quote) _:exact-nonnegative-integer))...))
               (stx-map (current-type-eval) #'args)
-       (stx/ #'ns)]
+       (mk-type/Int #`#,(stx/ #'ns))]
       ;; #%app min
       [((~literal #%plain-app) (~literal v:min) . args)
        #:with (~and ns
                    ((~or _:exact-nonnegative-integer
                     ((~literal quote) _:exact-nonnegative-integer))...))
               (stx-map (current-type-eval) #'args)
-       (stx-min #'ns)]
+       (mk-type/Int #`#,(stx-min #'ns))]
       [(~Producer n)
        ;; TODO: just return inf if cant eval complicated arith expr
        ;; #:do [(printf "Producer with: ~a\n" (stx->datum #'n))
        ;;       (displayln (get-orig this-syntax))]
        #:with n- ((current-type-eval) #'n)
        ;       #:with out-n (if (number? (stx-e #'n-)) #'(#%datum . n-) #'n-)
+       #:with n-/orig (syntax-parse #'n-
+                        [_:exact-nonnegative-integer #'n-]
+                        [_ (pass-orig #'n- #'n)])
+       ;; #:with new-orig #`(Producer
+       ;;                    #,(syntax-parse #'n-
+       ;;                        [x:exact-nonnegative-integer (add-orig #'x #'x)]
+       ;;                        [any (get-orig #'n-)]))
        (add-orig
-        (mk-type (expand/df #'(Producer- n-)))
-        #'(Producer n-))]
+        (mk-type (expand/df #'(Producer- n-/orig)))
+        #`(Producer #,(get-orig #'n-/orig)))]
       [t+ #'t+]))
   (current-type-eval new-eval)
 
@@ -319,18 +342,40 @@
   (define (lookup1 Y X+tys)
     (and (not (stx-null? X+tys))
          (syntax-parse (stx-car X+tys)
-           [(X ty) #:when (free-id=? Y #'X) #'ty]
+           [(X:id ty) #:when (free-id=? Y #'X) #'ty]
            [_ (lookup1 Y (stx-cdr X+tys))])))
-      
+
+  ;; TODO: do something less naive
   (define (unify tysX tys)
     (stx-appendmap unify1 tysX tys))
   (define (unify1 tyX ty)
     (syntax-parse (list tyX ty)
-      [((~Producer n) (~Producer m))
+      [((~Producer (_ (~literal v:-) n:id x)) (~Producer m))
+       #'((n (+ m x)))]
+      [((~Producer n:id) (~Producer m))
        #'((n m))]
       [_ '()]))
 
   (define current-Cs (make-parameter '()))
+  ;; extract precise failing condition from many; for better err msg
+  ;; check C, print CX when fail
+  (define (Cs->str CX C)
+    ;; (displayln (stx->datum CX))
+    ;; (displayln (stx->datum C))
+    (syntax-parse (list CX C)
+      [(((~literal if-) e1 e2 _)
+        ((~literal if-) e3 e4 _))
+       (if (stx-e ((current-type-eval) #'e3))
+           (Cs->str #'e2 #'e4)
+           (Cs->str #'e1 #'e3))]
+      [(((~literal #%expression) e1)
+        ((~literal #%expression) e2))
+       (Cs->str #'e1 #'e2)]
+      ;; type->str doesnt work for some reason
+      ;; It digs down too far, and replaces a var I want with another orig
+      ;; and I cant figure out where it comes from
+      ;; (see failing make-conf-talk example in paper-tests.rkt)
+      [_ (format "~a" (stx->datum (get-orig CX)))]))
   )
 
 (define-syntax define-named-type-alias
@@ -425,6 +470,7 @@
    ----------
    [⊢ (v:and e- ...) ⇒ Bool]])
 
+;; TODO: use singleton types?
 (define-typed-syntax >=
   [_:id ≫ ; HO use is binary
    ----------
@@ -589,13 +635,13 @@
    [([X ≫ X- : Int] ...) ([x ≫ x- : τ_in] ...) ⊢ [e ≫ e- ⇐ τ_out] [τ_in ≫ τ_in- ⇒ _] ... [τ_out ≫ τ_out- ⇒ _] [C0 ≫ C0- ⇒ _]]
    #:with new-orig
           (if (equal? #t (stx-e (stx-cadr #'C0-)))
-                       (cond [(null? (current-Cs)) #'()]
-                             [(= 1 (length (current-Cs)))
-                              (get-orig (car (current-Cs)))]
-                             [else #`(and #,@(map get-orig (current-Cs)))])
-                       (if (null? (current-Cs))
-                           (get-orig #'C0)
-                           #`(and #,(get-orig #'C0) #,@(map get-orig (current-Cs)))))
+              (cond [(null? (current-Cs)) #'()]
+                    [(= 1 (length (current-Cs)))
+                     (get-orig (car (current-Cs)))]
+                    [else #`(and #,@(map get-orig (current-Cs)))])
+              (if (null? (current-Cs))
+                  (get-orig #'C0)
+                  #`(and #,(get-orig #'C0) #,@(map get-orig (current-Cs)))))
    #:with C (add-orig
              #`(and C0- #,@(map syntax-local-introduce (current-Cs)))
              #'new-orig)
@@ -615,17 +661,18 @@
 
 (define-typed-syntax typed-app
   [(_ e_fn e_arg ...) ≫ ;; must instantiate
-;   #:do[(printf "applying ~a\n" (stx->datum #'e_fn))]
+;   #:do[(printf "applying ~a\n" (stx->datum (get-orig #'e_fn)))]
    [⊢ e_fn ≫ e_fn- ⇒ (~and ty-fn (~∀ (X ...+) ~! (~→ τ_inX ... τ_outX CX)))]
    #:fail-unless (stx-length=? #'[τ_inX ...] #'[e_arg ...])
                  (num-args-fail-msg #'e_fn #'[τ_inX ...] #'[e_arg ...])
    [⊢ e_arg ≫ _ ⇒ τ_arg] ...
+   ;; TODO: use return type (if known) to help unify
    #:with (X+ty ...) (unify #'(τ_inX ...) #'(τ_arg ...))
    #:with solved-tys (lookup #'(X ...) #'(X+ty ...))
    #:with (τ_in ... τ_out C)
           (substs #'solved-tys
                   #'(X ...)
-                  #'(τ_inX ... τ_outX CX))
+                  #'(τ_inX ... τ_outX CX) bound-id=? #f)
    #:with C- ((current-type-eval) #'C)
    ;; #:do[(printf "constraint POLY: ~a\n" (stx->datum #'CX))
    ;;      (printf "constraint POLY (orig): ~a\n" (type->str #'CX))
@@ -638,9 +685,9 @@
                                              "inferred: ~a"
                                              "for function type: ~a")
                                        ";\n")
-                                      (type->str #'e_fn-)
-                                      (type->str #'CX)
-                                      (string-join
+                                      (type->str #'e_fn-) ; fn
+                                      (Cs->str #'CX #'C)  ; condition
+                                      (string-join        ; inferred
                                        (map (λ (X ty)
                                               (syntax-parse ty
                                                 [(_ n)
@@ -649,14 +696,26 @@
                                            (stx->list #'(X ...))
                                            (stx->list #'solved-tys))
                                        ",")
-                                      (type->str #'ty-fn))
+                                      (type->str #'ty-fn)) ; fn type
    #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
+           (define (inst-orig e)
+             (syntax-property
+              e
+              'orig
+              (list (substs #'solved-tys
+                            #'(X ...)
+                            (get-orig e)
+                            stx-datum=? #f))))
            ;; update C's orig with instantiation
-           (define old-orig (get-orig #'C))
-           (define new-orig
-             (substs #'solved-tys #'(X ...) old-orig stx-datum=?))
            (define C-with-new-orig
-             (syntax-property #'C 'orig (list new-orig)))
+             (let L ([C #'C])
+               (inst-orig
+                (syntax-parse C ; must update orig of each C individually
+                  [((~literal if-) e1 e2 e3)
+                   #`(if- #,(L #'e1) #,(L #'e2) #,(L #'e3))]
+                  [((~literal #%expression) e)
+                   #`(#%expression #,(L #'e))]
+                  [e #'e]))))
            (current-Cs (cons C-with-new-orig (current-Cs))))]
    [⊢ e_arg ≫ e_arg- ⇐ τ_in] ... ; double expand?
    --------
@@ -827,7 +886,7 @@
   [(_ (~and p (~not _:keyword)) ... #:transitions trans #:length n ~!) ≫
    [⊢ p ≫ p- ⇒ (~Producer _)] ...
    [⊢ trans ≫ trans- ⇒ (~Listof (~Transition _))]
-   [⊢ n ≫ n- ⇐ Nat]
+   [⊢ n ≫ n- ⇐ Int]
    ------------
    [⊢ (v:#%app v:multitrack p- ... #:transitions trans- #:length n-) ⇒ (Producer n)]]
   [(_ (~and p (~not _:keyword)) ... #:transitions trans ~!) ≫
@@ -840,7 +899,7 @@
    #:when (stx-andmap (λ (t) (or (Transition? t) (Producer? t))) #'(ty ...))
    [⊢ n ≫ n- ⇐ Int]
    ------------
-   [⊢ (v:#%app v:multitrack p- ... #:length n-) ⇒ (Producer n)]]
+   [⊢ (v:#%app v:multitrack p- ... #:length n-) ⇒ #,(stx/loc this-syntax (Producer n))]]
   [(_ p ...) ≫ ; producers only
    [⊢ p ≫ p- ⇒ (~Producer n)] ...
    ------------
@@ -866,7 +925,7 @@
   [(_ p ...) ≫ ; producers only
    [⊢ p ≫ p- ⇒ (~Producer n)] ...
    ------------
-   [⊢ (v:#%app v:playlist p- ...) ⇒ #,(syntax/loc this-syntax (Producer (+ n ...)))]]
+   [⊢ (v:#%app v:playlist p- ...) ⇒ #,(stx/loc this-syntax (Producer (+ n ...)))]]
   [(_ p1 p/t ... pn) ≫ ; producers + transitions
    [⊢ p1 ≫ p1- ⇒ (~Producer n1)]
    [⊢ pn ≫ pn- ⇒ (~Producer nn)]
@@ -874,8 +933,8 @@
    [⊢ p/t ≫ p/t- ⇒ P-or-T] ...
    #:with ((~or (~Producer n) (~Transition m)) ...) #'(P-or-T ...)
    ------------
-   [⊢ (v:#%app v:playlist p1- p/t- ... pn-) 
-      ⇒ (Producer (+ n1 nn n ... (- (+ m ...))))]]
+   [⊢ (v:#%app v:playlist p1- p/t- ... pn-)
+      ⇒ (Producer (- (+ n1 n ... nn) (+ m ...)))]]
   [xs ≫
    ------------
    [#:error
@@ -948,6 +1007,11 @@
    [⊢ m ≫ m- ⇐ Int]
    -----------
    [⊢ (v:#%app v:cut-producer p- #:start m-) ⇒ (Producer (+ 1 (- n m)))]]
+  [(_ p #:end n) ≫
+   [⊢ n ≫ n- ⇐ Int]
+   [⊢ p ≫ p- ⇐ (Producer (+ 1 n))]
+   -----------
+   [⊢ (v:#%app v:cut-producer p- #:end n-) ⇒ (Producer (+ 1 n))]]
   [(_ p #:start m #:end n) ≫
    [⊢ p ≫ _ ⇐ (Producer m)]
    [⊢ p ≫ p- ⇐ (Producer (+ 1 (- n m)))]

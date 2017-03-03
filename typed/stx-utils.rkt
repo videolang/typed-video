@@ -1,5 +1,6 @@
 #lang racket/base
-(require syntax/parse syntax/stx macrotypes/stx-utils)
+(require (for-syntax racket/base)
+         syntax/parse syntax/stx macrotypes/stx-utils)
 (provide (all-defined-out))
 
  ; extract list of quoted numbers
@@ -11,14 +12,19 @@
 
 (define (stx+ ns)    (apply + (stx->nums ns)))
 (define (stx>= ns)   (apply >= (stx->nums ns)))
+(define (stx<= ns)   (apply <= (stx->nums ns)))
+(define (stx> ns)    (apply > (stx->nums ns)))
+(define (stx< ns)    (apply < (stx->nums ns)))
 (define (stx- ns)    (if (stx-null? ns) 0 (apply - (stx->nums ns))))
-(define (stx/ ns)    (apply / (stx->nums ns)))
+(define (stx/ ns)    (apply quotient (stx->nums ns)))
 (define (stx-max ns) (apply max (stx->nums ns)))
 (define (stx-min ns) (apply min (stx->nums ns)))
 
 (define stx-e syntax-e)
 (define stx? syntax?)
 (define fmt format)
+(define-syntax stx/loc (make-rename-transformer #'syntax/loc))
+(define bound-id=? bound-identifier=?)
 
 (define (stx-filter-out-false . stxs)
   (filter
