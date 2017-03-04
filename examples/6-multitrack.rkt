@@ -1,7 +1,7 @@
 #lang typed/video
 (require turnstile/examples/tests/rackunit-typechecking)
 
-(check-type (clip "vid.mp4" #:start 50 #:end 200) : (Producer 151))
+(check-type (clip "vid.mp4" #:start 50 #:end 150) : (Producer 101))
 (check-type
  (playlist
   (blank 40)
@@ -9,8 +9,8 @@
  : Producer)
 (check-type
  (multitrack
-  (clip "vid.mp4" #:start 50 #:end 200))
- : (Producer 151))
+  (clip "vid.mp4" #:start 50 #:end 150))
+ : (Producer 101))
 (check-type
  (multitrack
   (playlist
@@ -19,14 +19,14 @@
  : Producer)
 (check-type
  (multitrack
-  (clip "vid.mp4" #:start 50 #:end 200)
+  (clip "vid.mp4" #:start 50 #:end 150)
   (playlist
    (blank 40)
    (color "red")))
- : (Producer 151))
+ : (Producer 101))
 
 (multitrack
- (clip "vid.mp4" #:start 50 #:end 200)
+ (clip "vid.mp4" #:start 50 #:end 150)
  (playlist
   (blank 40)
   (color "red")))

@@ -12,7 +12,7 @@
                       (composite-transition 0.6 0.6 0.2 0.2
                                             #:top red
                                             #:bottom blocks)))
- : (Producer 151))
+ : (Producer 101))
 (check-not-type
  (multitrack
   blocks
@@ -24,7 +24,7 @@
                       (composite-transition 0.6 0.6 0.2 0.2
                                             #:top red
                                             #:bottom blocks)))
- : (Producer 152))
+ : (Producer 102))
 
 (multitrack
  blocks
@@ -37,6 +37,6 @@
                                            #:top red
                                            #:bottom blocks)))
 
-(define blocks (clip "vid.mp4" #:start 50 #:end 200))
+(define blocks (clip "vid.mp4" #:start 50 #:end 150))
 (define circ (image "circ.png" #:length 200))
 (define red (color "red"))

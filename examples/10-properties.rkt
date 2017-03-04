@@ -2,18 +2,26 @@
 (require turnstile/examples/tests/rackunit-typechecking)
 
 
-(check-type
+(typecheck-fail
  (clip "vid.mp4"
       #:start 50
       #:end (if (equal? (get-property v-clip "vid-key") "block")
                 200
                 51))
- : (Producer 151))
+ #:with-msg
+ (add-escs "clip: type mismatch: expected 151, given 139"))
+(check-type
+ (clip "vid.mp4"
+      #:start 50
+      #:end (if (equal? (get-property v-clip "vid-key") "block")
+                150
+                51))
+ : (Producer 101))
 (check-not-type
  (clip "vid.mp4"
        #:start 50
        #:end (if (equal? (get-property v-clip "vid-key") "block")
-                 200
+                 150
                  51))
  : Producer)
 (define v-clip

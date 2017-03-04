@@ -20,11 +20,11 @@
  blank color image clip multitrack playlist include-video
  composite-transition fade-transition
  scale-filter attach-filter grayscale-filter cut-producer
- get-property set-property #;producer-length)
+ get-property set-property)
 (provide top-level-playlist require-vid #%type
          (rename-out [typed-app #%app]) /
          Producer Transition Filter (for-syntax ~Producer)
-         Int Nat Num Bool String Listof Hash Void →
+         Int Num Bool String Listof Hash Void →
          ann)
 
 ;; TODO:
@@ -32,11 +32,12 @@
 ;; - 2017-02-13: #%module-begin define lifting not working for typed define
 ;;               DONE 2017-02-24
 ;; - 2017-03-03: most Nats (eg, for #:length args) should be Ints
+;;               2017-03-03: DONE, removed Nat
 ;; - 2017-03-03: change #:end's to be exclusive
 ;; - 2017-03-03: use actual +inf.0 instead of 99999
 ;; - 2017-03-03: remove orig-app property?
 ;; - 2017-03-03: switch more prims to use typed-out
-;;               - requires creating fn type with kws?
+;;               - requires creating fn type with kws and variable-arity
 ;; - 2017-03-03: add =, >, and <
 
 ;; debugging NOTES:
@@ -53,7 +54,7 @@
 ;; types ----------------------------------------------------------------------
 (define-binding-type ∀)
 (define-type-constructor Listof)
-(define-base-types String Int Nat Num Bool Hash Void Filter)
+(define-base-types String Int Num Bool Hash Void Filter)
 
 (begin-for-syntax
   ;; fns for marking a type with kind Int
@@ -97,6 +98,7 @@
    -----------
    [≻ #,(add-orig #`(∀ () #,(mk-type #'(→- ty- ... #t))) #'(→ ty ...))]])
 
+(define-for-syntax INF 999999)
 (define-internal-type-constructor Producer)
 (define-syntax (Producer stx)
   (define (set-orig-to-stx t) (add-orig t stx))
@@ -104,7 +106,7 @@
    (mk-type
     (syntax-parse stx
       ; TODO: this should use +inf.0 but using an int makes things easier for now
-      [_:id #'(Producer- (v:#%datum . 999999))] ; shorthand for inf length
+      [_:id #`(Producer- (v:#%datum . #,INF))] ; shorthand for inf length
       [(_ n:exact-nonnegative-integer) #'(Producer- n)]
       [(_ n) ; must accept Ints (as opposed to restricting to Nats), for -, etc
        #:with n- (pass-orig ((current-type-eval) #'n) #'n)
@@ -146,17 +148,10 @@
   
   ;; these preds assume expanded tys
   ;; - lowercase matches literals only, ie singletons
-  ;; - uppercase includes general tys, eg Int, Nat, etc
-  (define nat-ty?
-    (syntax-parser
-      [(~or n:exact-nonnegative-integer ; this is from impl code?
-            ((~literal quote) n:exact-nonnegative-integer)) ; this is from user code?
-       #t]
-       [_ #f]))
+  ;; - uppercase includes general tys, eg Int
   (define int-ty?
     (syntax-parser [(~or n:integer ((~literal quote) n:integer)) #t][_ #f]))
-  (define (Nat-ty? t) (or (Nat? t) (nat-ty? t)))
-  (define (Int-ty? t) (or (Nat? t) (Int? t) (int-ty? t) (arith-type? t)))
+  (define (Int-ty? t) (or (Int? t) (int-ty? t) (arith-type? t)))
   
   ;; new type relation: a subtyping relation
   (define old-type-rel (current-typecheck-relation))
@@ -169,7 +164,6 @@
      (equal? (stx-e t1) (stx-e t2)) ; for singleton types
      (and (Int-ty? t1) (Num? t2))
      (and (Int-ty? t1) (Int? t2))
-     (and (Nat-ty? t1) (Nat? t2))
      (syntax-parse (list t1 t2)
       [(((~literal #%expression) e) _) (typecheck? #'e t2)] ; `and` generates these
       [(_ ((~literal #%expression) e)) (typecheck? t1 #'e)] ; `and` generates these
@@ -183,6 +177,8 @@
       [((~→ i ... o c) (~→ j ... p d)) (typechecks? #'(j ... o) #'(i ... p))]
       [(((~literal quote) m:number) ((~literal quote) n:number))
        (>= (stx-e #'m) (stx-e #'n))]   ; longer vid is "more precise"
+      [(m:number n:number)
+       (>= (stx-e #'m) (stx-e #'n))]
       [(((~literal quote) b1:boolean) ((~literal quote) b2:boolean))
        (equal? (stx-e #'b1) (stx-e #'b2))]
       ;; arith expr: sort + terms
@@ -222,7 +218,7 @@
                             (and (id? k-as-ty) (typecheck/Int? (typeof k-as-ty)))))); tyvar
           (mk-type/Int (typeof #'t+))]
       ;; number literals
-      [((~literal quote) n:exact-nonnegative-integer) (assign-type #'n #'Nat)]
+      [((~literal quote) n:integer) (mk-type/Int #'n)]
       [((~literal quote) s:str) #'s]
       [((~literal quote) b:boolean) #'b]
       [((~literal #%expression) e) ((current-type-eval) #'e)] ; `and` generates these #%exprs?
@@ -391,13 +387,6 @@
    [⊢ (v:#%app v:max e- ...) ⇒ Int]])
 
 (define-typed-syntax +
-  #;[_:id ≫ ; HO use is binary
-   ----------
-   [⊢ v:+ ⇒ (→ Int Int)]]
-  #;[(_ e ...) ≫
-   [⊢ e ≫ e- ⇐ Nat] ...
-   ----------
-   [⊢ (v:#%app v:+ e- ...) ⇒ Nat]]
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
@@ -417,10 +406,6 @@
   #;[_:id ≫ ; HO use is binary
    ----------
    [⊢ v:+ ⇒ (→ Int Int)]]
-  [(_ e ...) ≫
-   [⊢ e ≫ e- ⇐ Nat] ...
-   ----------
-   [⊢ (v:#%app v:quotient e- ...) ⇒ Nat]]
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
@@ -520,13 +505,10 @@
 
 ;; Racket core forms ----------------------------------------------------------
 (define-typed-syntax #%datum
-  [(_ . n:exact-nonnegative-integer) ≫ ; use singleton types
-   --------
-   [⊢ (v:#%datum . n) ⇒ #,(add-orig (assign-type #'(v:#%datum . n) #'Nat) #'n)]]
   [(_ . n:integer) ≫ ; use singleton types
    --------
    [⊢ (v:#%datum . n) ⇒ #,(add-orig (mk-type/Int #'(v:#%datum . n)) #'n)]]
-  [(_ . n:number) ≫
+  [(_ . n:number) ≫ ; Num needed by composite-transition
    --------
    [⊢ (v:#%datum . n) ⇒ Num]]
   [(_ . s:str) ≫
@@ -773,7 +755,7 @@
    [⊢ (v:#%app v:color c-) ⇒ Producer]]
   [(_ c #:length n) ≫
    [⊢ c ≫ c- ⇐ String]
-   [⊢ n ≫ n- ⇐ Nat]
+   [⊢ n ≫ n- ⇐ Int]
    --------
    [⊢ (v:#%app v:color c- #:length n-) ⇒ (Producer n)]])
 
@@ -784,30 +766,38 @@
    [⊢ (v:#%app v:image f-) ⇒ Producer]]
   [(_ f #:length n) ≫
    [⊢ f ≫ f- ⇐ String]
-   [⊢ n ≫ n- ⇐ Nat]
+   [⊢ n ≫ n- ⇐ Int]
    --------
    [⊢ (v:#%app v:image f- #:length n-) ⇒ (Producer n)]])
 
+;; returns length or false
+(define-for-syntax (get-clip-len f)
+  (with-handlers ([exn? (λ _ #f)])
+    (parameterize ([current-namespace (make-base-namespace)])
+      (namespace-require 'video)
+      (eval `(get-property
+              (clip ,(syntax->datum f))
+              "length" 'int)))))
 (define-typed-syntax clip
-  [(_ f:str) ≫ ; literal arg
+  [(_ f) ≫ ; literal arg
    [⊢ f ≫ f- ⇐ String]
-   #:do [(define len
-           (with-handlers ([exn? (λ _ #f)])
+   #:do [(define len (get-clip-len #'f))
+           #;(with-handlers ([exn? (λ _ #f)])
              (parameterize ([current-namespace (make-base-namespace)])
                (namespace-require 'video)
                (eval `(get-property
                        (clip ,(syntax->datum #'f))
-                       "length" 'int)))))]
+                       "length" 'int))))]
    --------
    [⊢ (v:#%app v:clip f-) ⇒ #,(or (and len #`(Producer #,len))
                                   #'Producer)]]
-  [(_ f) ≫
+  #;[(_ f) ≫
    [⊢ f ≫ f- ⇐ String]
    --------
    [⊢ (v:#%app v:clip f-) ⇒ Producer]]
   [(_ f #:length n) ≫
    [⊢ f ≫ f- ⇐ String]
-   [⊢ n ≫ n- ⇐ Nat]
+   [⊢ n ≫ n- ⇐ Int]
    --------
    [⊢ (v:#%app v:clip f- #:length n-) ⇒ (Producer n)]]
   [(_ f #:properties (~and props ((~literal hash) (~seq k:str v:str) ...))) ≫
@@ -824,8 +814,10 @@
    [⊢ (v:#%app v:clip f- #:properties props-) ⇒ Producer]]
   [(_ f #:start n #:end m) ≫
    [⊢ f ≫ f- ⇐ String]
-   [⊢ n ≫ n- ⇐ Nat]
-   [⊢ m ≫ m- ⇐ Nat]
+   #:do [(define len (get-clip-len #'f))]
+   [⊢ n ≫ n- ⇐ 0]
+   [⊢ m ≫ m- ⇐ 0]
+   [⊢ #,(or len INF) ≫ _ ⇐ (+ (- m n) 1)]
    --------
    [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ (Producer (+ (- m n) 1))]])
 
@@ -923,11 +915,11 @@
 
 (define-typed-syntax fade-transition
   [(_ #:length n:exact-nonnegative-integer) ≫
-   [⊢ n ≫ n- ⇐ Nat]
+   [⊢ n ≫ n- ⇐ Int]
    --------
    [⊢ (v:#%app v:fade-transition #:length n-) ⇒ (Transition n)]]
   [(_ #:length n) ≫
-   [⊢ n ≫ n- ⇐ Nat]
+   [⊢ n ≫ n- ⇐ Int]
    --------
    [⊢ (v:#%app v:fade-transition #:length n-) ⇒ Transition]])
 

@@ -5,12 +5,11 @@
 
 ;; producer-length
 (check-type (producer-length (blank 10)) : 10)
-(check-type (producer-length (blank 10)) : Nat)
 (check-type (producer-length (blank 10)) : Int)
 
 (define bl10 (blank 10))
 (check-type bl10 : (Producer 10))
-(typecheck-fail (Producer Nat) #:with-msg "expected expression of type Int, given Nat")
+(typecheck-fail (Producer Bool) #:with-msg "expected expression of type Int, given Bool")
 
 ;; test singleton types
 (check-type (blank (producer-length bl10)) : (Producer 10))
