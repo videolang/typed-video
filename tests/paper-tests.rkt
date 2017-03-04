@@ -66,8 +66,8 @@
 (check-type (clip vid-mp4 #:length 3) : (Producer 3))
 
 (check-type (color "blue" #:length 2) : (Producer 2))
-(check-type (clip vid-mp4 #:start 100 #:end 103) : (Producer 4))
 (check-type (clip vid-mp4 #:start 100 #:end 103) : (Producer 3))
+(check-type (clip vid-mp4 #:start 100 #:end 103) : (Producer 2))
 (check-not-type (clip vid-mp4 #:start 100 #:end 103) : Producer)
 (check-type (image circ-png #:length 1) : (Producer 1))
 (check-type (blank 2) : (Producer 2))
@@ -129,7 +129,7 @@
   (fade-transition #:length 1)
   (color "blue" #:length 2)
   (fade-transition #:length 2)
-  (clip vid-mp4 #:start 0 #:end 2))
+  (clip vid-mp4 #:start 0 #:end 3))
  : (Producer 4))
 (check-not-type
  (playlist
@@ -137,7 +137,7 @@
   (fade-transition #:length 1)
   (color "blue" #:length 2)
   (fade-transition #:length 2)
-  (clip vid-mp4 #:start 0 #:end 2))
+  (clip vid-mp4 #:start 0 #:end 3))
  : (Producer 5))
 
 ;; multitracks
@@ -302,7 +302,7 @@
  (make-conf-talk (blank 200) (blank 200) (color "green") 0)
  #:with-msg (add-escs "#%app: while applying fn make-conf-talk;\nfailed condition: (>= n2 400);\ninferred: n2 = 200"))
 
-(check-type (cut-producer (blank 100) #:start 10 #:end 20) : (Producer 11))
+(check-type (cut-producer (blank 100) #:start 10 #:end 20) : (Producer 10))
 
 ;; start too high
 (typecheck-fail
@@ -314,4 +314,4 @@
  (cut-producer (blank 9) #:start 8 #:end 20)
  #:with-msg
  (add-escs
-  "cut-producer: type mismatch: expected (Producer (+ 1 (- 20 8))), given (Producer 9)"))
+  "cut-producer: type mismatch: expected (Producer (- 20 8)), given (Producer 9)"))

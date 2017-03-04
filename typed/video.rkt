@@ -33,7 +33,8 @@
 ;;               DONE 2017-02-24
 ;; - 2017-03-03: most Nats (eg, for #:length args) should be Ints
 ;;               2017-03-03: DONE, removed Nat
-;; - 2017-03-03: change #:end's to be exclusive
+;; - 2017-03-03: change #:end's to be exclusive, ie, n - m, not (add1 n - m)
+;;              2017-03-04: DONE
 ;; - 2017-03-03: use actual +inf.0 instead of 99999
 ;; - 2017-03-03: remove orig-app property?
 ;; - 2017-03-03: switch more prims to use typed-out
@@ -817,9 +818,9 @@
    #:do [(define len (get-clip-len #'f))]
    [⊢ n ≫ n- ⇐ 0]
    [⊢ m ≫ m- ⇐ 0]
-   [⊢ #,(or len INF) ≫ _ ⇐ (+ (- m n) 1)]
+   [⊢ #,(or len INF) ≫ _ ⇐ (- m n)]
    --------
-   [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ (Producer (+ (- m n) 1))]])
+   [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ (Producer (- m n))]])
 
 (provide (typed-out [[v:producer-length : (→ #:bind {n} (Producer n) n)]
                      producer-length]))
@@ -950,19 +951,19 @@
    [⊢ p ≫ p- (⇐ (Producer m)) (⇒ (~Producer n))]
    [⊢ m ≫ m- ⇐ Int]
    -----------
-   [⊢ (v:#%app v:cut-producer p- #:start m-) ⇒ (Producer (+ 1 (- n m)))]]
+   [⊢ (v:#%app v:cut-producer p- #:start m-) ⇒ (Producer (- n m))]]
   [(_ p #:end n) ≫
    [⊢ n ≫ n- ⇐ Int]
-   [⊢ p ≫ p- ⇐ (Producer (+ 1 n))]
+   [⊢ p ≫ p- ⇐ (Producer n)]
    -----------
-   [⊢ (v:#%app v:cut-producer p- #:end n-) ⇒ (Producer (+ 1 n))]]
+   [⊢ (v:#%app v:cut-producer p- #:end n-) ⇒ (Producer n)]]
   [(_ p #:start m #:end n) ≫
    [⊢ p ≫ _ ⇐ (Producer m)]
-   [⊢ p ≫ p- ⇐ (Producer (+ 1 (- n m)))]
-   [⊢ m ≫ m- ⇐ Int]
-   [⊢ n ≫ n- ⇐ Int]
+   [⊢ p ≫ p- ⇐ (Producer (- n m))]
+   [⊢ m ≫ m- ⇐ 0]
+   [⊢ n ≫ n- ⇐ 0]
    -----------
-   [⊢ (v:#%app v:cut-producer p- #:start m- #:end n-) ⇒ (Producer (+ 1 (- n m)))]])
+   [⊢ (v:#%app v:cut-producer p- #:start m- #:end n-) ⇒ (Producer (- n m))]])
    
 
 ;; props ----------------------------------------------------------------------
@@ -997,11 +998,10 @@
   [(_ v #:start m #:end n) ≫
    ;; TODO: check that n-m is an ok length against actualy type
    [⊢ v ≫ v- ⇐ String]
-   [⊢ m ≫ m- ⇐ Int]
-   [⊢ n ≫ n- ⇐ Int]
+   [⊢ m ≫ m- ⇐ 0]
+   [⊢ n ≫ n- ⇐ 0]
    --------
-   [⊢ (v:#%app v:include-video v- #:start m- #:end n-)
-      ⇒ (Producer (+ 1 (- n m)))]]
+   [⊢ (v:#%app v:include-video v- #:start m- #:end n-) ⇒ (Producer (- n m))]]
   [(_ v) ≫
    [⊢ v ≫ (~and v- (_ v--)) ⇐ String]
    #:with tmp (generate-temporary)

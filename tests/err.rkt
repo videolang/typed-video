@@ -39,4 +39,4 @@
 (typecheck-fail
  (clip "vid.mp4" #:start 0 #:end 1000)
  #:with-msg
- (add-escs "clip: type mismatch: expected 1001, given 139"))
+ (add-escs "clip: type mismatch: expected 1000, given 139"))

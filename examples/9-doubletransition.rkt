@@ -12,7 +12,7 @@
                       (composite-transition 0.6 0.6 0.2 0.2
                                             #:top red
                                             #:bottom blocks)))
- : (Producer 101))
+ : (Producer 100))
 (check-not-type
  (multitrack
   blocks
@@ -24,7 +24,7 @@
                       (composite-transition 0.6 0.6 0.2 0.2
                                             #:top red
                                             #:bottom blocks)))
- : (Producer 102))
+ : (Producer 101))
 
 (multitrack
  blocks

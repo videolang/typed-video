@@ -9,14 +9,14 @@
                 200
                 51))
  #:with-msg
- (add-escs "clip: type mismatch: expected 151, given 139"))
+ (add-escs "clip: type mismatch: expected 150, given 139"))
 (check-type
  (clip "vid.mp4"
       #:start 50
       #:end (if (equal? (get-property v-clip "vid-key") "block")
                 150
                 51))
- : (Producer 101))
+ : (Producer 100))
 (check-not-type
  (clip "vid.mp4"
        #:start 50
