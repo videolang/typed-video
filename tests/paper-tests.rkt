@@ -247,6 +247,7 @@
   (define begin-clip (image circ-png #:length 500))
   (define end-clip (image circ-png #:length 500)))
 
+;; TODO: dont need explicit side-condition?, should be generated?
 (define (make-talk-video {m} [main-talk : (Producer m)] #:when (>= m 400)
                              → (Producer (+ m 600)))
   ;; defines should be after playlist?

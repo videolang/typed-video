@@ -9,7 +9,8 @@
 
 (define bl10 (blank 10))
 (check-type bl10 : (Producer 10))
-(typecheck-fail (Producer Bool) #:with-msg "expected expression of type Int, given Bool")
+(typecheck-fail (Producer Bool)
+                #:with-msg "expected expression of type Int, given Bool")
 
 ;; test singleton types
 (check-type (blank (producer-length bl10)) : (Producer 10))
@@ -54,7 +55,7 @@
  (f1 (blank 2))
  #:with-msg
  (add-escs
-  "#%app: while applying fn f1;\nfailed condition: (>= (- (producer-length p1) 5) 0);\ninferred: n1 = 2;\nfor function type: (→ #:bind (n1) (Producer n1) (Producer (- n1 5)) #:when (>= (- (producer-length p1) 5) 0))"))
+  "#%app: while applying fn f1;\nfailed condition: (>= (- n1 5) 0);\ninferred: n1 = 2;\nfor function type: (→ #:bind (n1) (p1 : (Producer n1)) (Producer (- n1 5)) #:when (and (>= (- n1 5) 0) (>= n1 0)))\n  at: (#%app f118 (blank 2))"))
 
 ;; explicit >= constraint
 (define (f2 {n2} [p2 : (Producer n2)] #:when (>= n2 100) -> (Producer n2)) p2)
@@ -64,7 +65,7 @@
  (f2 (blank 99))
  #:with-msg
  (add-escs
-  "#%app: while applying fn f2;\nfailed condition: (>= n2 100);\ninferred: n2 = 99;\nfor function type: (→ #:bind (n2) (Producer n2) (Producer n2) #:when (>= n2 100))"))
+  "#%app: while applying fn f2;\nfailed condition: (>= n2 100);\ninferred: n2 = 99;\nfor function type: (→ #:bind (n2) (p2 : (Producer n2)) (Producer n2) #:when (and (>= n2 100) (>= n2 0)))"))
 
 ;; explicit <= constraint
 (define (f3 {n3} [p3 : (Producer n3)] #:when (<= n3 100) -> (Producer n3)) p3)
@@ -73,7 +74,7 @@
  (f3 (blank 101))
  #:with-msg
  (add-escs
-  "#%app: while applying fn f3;\nfailed condition: (<= n3 100);\ninferred: n3 = 101;\nfor function type: (→ #:bind (n3) (Producer n3) (Producer n3) #:when (<= n3 100))"))
+  "#%app: while applying fn f3;\nfailed condition: (<= n3 100);\ninferred: n3 = 101;\nfor function type: (→ #:bind (n3) (p3 : (Producer n3)) (Producer n3) #:when (and (<= n3 100) (>= n3 0)))"))
 
 ;; implicit constraint (from typechecking Producer)
 ;; - generates constraint n4 >= n4 - 5
@@ -86,20 +87,31 @@
  (f4 (blank 3))
  #:with-msg
  (add-escs
-  "#%app: while applying fn f4;\nfailed condition: (>= (- (producer-length p4) 5) 0);\ninferred: n4 = 3;\nfor function type: (→ #:bind (n4) (Producer n4) (Producer (- n4 5)) #:when (and (>= (- (producer-length p4) 5) 0) (>= n4 (- (producer-length p4) 5)) (>= (- (producer-length p4) 5) 0)))"))
+  "#%app: while applying fn f4;\nfailed condition: (>= (- n4 5) 0);\ninferred: n4 = 3;\nfor function type: (→ #:bind (n4) (p4 : (Producer n4)) (Producer (- n4 5)) #:when (and (>= n4 (- (producer-length p4) 5)) (>= (- n4 5) 0) (>= n4 0)))"))
 
 ;; def wont fail bc solving alg cant determine n4 - 6 + 1 >= n4
 ;; but every app of f4* will fail
 (define (f4* {n4} [p4 : (Producer n4)] -> (Producer n4))
   (cut-producer p4 #:end (- (producer-length p4) 5)))
+(check-type
+ f4* :
+ (→ #:bind (n4)
+    (p4 : (Producer n4))
+    (Producer n4)
+    #:when (and (>= (- (producer-length p4) 5) n4)
+                (>= n4 (- (producer-length p4) 5))
+                (>= (- (producer-length p4) 5) 0)
+                (>= n4 0))))
 (typecheck-fail
  (f4* (blank 0))
  #:with-msg
- (add-escs "#%app: while applying fn f4*;\nfailed condition: (>= (- (producer-length p4) 5) n4);\ninferred: n4 = 0;\nfor function type: (→ #:bind (n4) (Producer n4) (Producer n4) #:when (and (>= (- (producer-length p4) 5) n4) (>= (- (producer-length p4) 5) 0) (>= n4 (- (producer-length p4) 5)) (>= (- (producer-length p4) 5) 0)))"))
+ (add-escs
+  "#%app: while applying fn f4*;\nfailed condition: (>= (- (producer-length p4) 5) n4);\ninferred: n4 = 0;\nfor function type: (→ #:bind (n4) (p4 : (Producer n4)) (Producer n4) #:when (and (>= (- (producer-length p4) 5) n4) (>= n4 (- (producer-length p4) 5)) (>= (- (producer-length p4) 5) 0) (>= n4 0)))"))
 (typecheck-fail
  (f4* (blank 100))
  #:with-msg
- (add-escs "#%app: while applying fn f4*;\nfailed condition: (>= (- (producer-length p4) 5) n4);\ninferred: n4 = 100;\nfor function type: (→ #:bind (n4) (Producer n4) (Producer n4) #:when (and (>= (- (producer-length p4) 5) n4) (>= (- (producer-length p4) 5) 0) (>= n4 (- (producer-length p4) 5)) (>= (- (producer-length p4) 5) 0)))"))
+ (add-escs
+  "#%app: while applying fn f4*;\nfailed condition: (>= (- (producer-length p4) 5) n4);\ninferred: n4 = 100;\nfor function type: (→ #:bind (n4) (p4 : (Producer n4)) (Producer n4) #:when (and (>= (- (producer-length p4) 5) n4) (>= n4 (- (producer-length p4) 5)) (>= (- (producer-length p4) 5) 0) (>= n4 0)))"))
 
 ;; explicit + implicit constraint
 (define (f5 {n5} [p5 : (Producer n5)] #:when (<= n5 100) -> (Producer (- n5 5)))
@@ -111,12 +123,12 @@
  (f5 (blank 3))
  #:with-msg
  (add-escs
-  "#%app: while applying fn f5;\nfailed condition: (>= (- (producer-length p5) 5) 0);\ninferred: n5 = 3;\nfor function type: (→ #:bind (n5) (Producer n5) (Producer (- n5 5)) #:when (and (<= n5 100) (>= (- (producer-length p5) 5) 0) (>= n5 (- (producer-length p5) 5)) (>= (- (producer-length p5) 5) 0)))"))
+  "#%app: while applying fn f5;\nfailed condition: (>= (- n5 5) 0);\ninferred: n5 = 3;\nfor function type: (→ #:bind (n5) (p5 : (Producer n5)) (Producer (- n5 5)) #:when (and (<= n5 100) (>= n5 (- (producer-length p5) 5)) (>= (- n5 5) 0) (>= n5 0)))"))
 (typecheck-fail
  (f5 (blank 4))
  #:with-msg
  (add-escs
-  "#%app: while applying fn f5;\nfailed condition: (>= (- (producer-length p5) 5) 0);\ninferred: n5 = 4;\nfor function type: (→ #:bind (n5) (Producer n5) (Producer (- n5 5)) #:when (and (<= n5 100) (>= (- (producer-length p5) 5) 0) (>= n5 (- (producer-length p5) 5)) (>= (- (producer-length p5) 5) 0)))"))
+  "#%app: while applying fn f5;\nfailed condition: (>= (- n5 5) 0);\ninferred: n5 = 4;\nfor function type: (→ #:bind (n5) (p5 : (Producer n5)) (Producer (- n5 5)) #:when (and (<= n5 100) (>= n5 (- (producer-length p5) 5)) (>= (- n5 5) 0) (>= n5 0)))"))
 ;; f5 fail: too high
 
 ;; no failing cases?
@@ -124,3 +136,4 @@
   (playlist (blank 1) p6))
 (check-type (f6 (blank 0)) : (Producer 1))
 (check-type (f6 (blank 100)) : (Producer 101))
+
