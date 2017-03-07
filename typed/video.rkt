@@ -288,7 +288,7 @@
       [(~Producer n)
        ;; TODO: return inf in some cases?
        #:with n- (syntax-parse (ev #'n)
-                   [x:exact-nonnegative-integer #'x]
+                   [x:exact-nonnegative-integer (syntax-property #'x 'orig (list #'x))]
                    [x (pass-orig #'x #'n)])
        (add-orig
         (mk-type (expand/df #'(Producer- n-)))
@@ -985,29 +985,29 @@
    [⊢ (v:#%app v:set-property p- k- v-) ⇒ ty_out]])
 
 (define-typed-syntax include-video
-  [(_ v #:start m #:end n) ≫
-   ;; TODO: check that n-m is an ok length against actual type
-   [⊢ v ≫ v- ⇐ String]
-   [⊢ m ≫ m- ⇐ 0]
-   [⊢ n ≫ n- ⇐ 0]
-   --------
-   [⊢ (v:#%app v:include-video v- #:start m- #:end n-) ⇒ (Producer (- n m))]]
-  [(_ v) ≫
-   [⊢ v ≫ (~and v- (_ v--)) ⇐ String]
+ [(_ v (~optional (~seq #:start m #:end n/#f) #:defaults ([m #'0]))) ≫
+   [⊢ v ≫ _ ⇐ String]
    #:with tmp (generate-temporary)
    #:with vid (datum->syntax #'v 'vid)
    #:with vid-ty2 (datum->syntax #'v 'vid-ty2)
-   [⊢ (let-syntax- ([tmp (make-variable-like-transformer
-                          (syntax-property
-                           #'(dynamic-require 'v 'vid)
-                           ':
-                           (local-expand
-                            #`(Producer (#%datum . #,(dynamic-require 'v 'vid-ty2)))
-                            'expression null)))])
-                   tmp)
-      ≫ (_ () (_ () e-)) ⇒ _] ; extract from let-values remnants of let-stx
+   [⊢ (let-syntax-
+       ([tmp (make-variable-like-transformer
+              (let ([len (dynamic-require 'v 'vid-ty2)])
+                (syntax-property
+                 #'(dynamic-require 'v 'vid)
+                 ':
+                 (add-orig
+                  (local-expand #`(Producer #,len) 'expression null)
+                  #`(Producer #,len)))))])
+       tmp)
+      ≫ (_ () (_ () e-)) ⇒ _]
+   #:with n (if (attribute n/#f) #'n/#f #`#,(dynamic-require (stx->datum #'v) 'vid-ty2))
+   [⊢ m ≫ m- ⇐ 0]
+   [⊢ n ≫ n- ⇐ 0]
+   [⊢ e- ≫ _ ⇐ (Producer m-)]
+   [⊢ e- ≫ _ ⇐ (Producer n-)]
    --------
-   [≻ e-]])
+   [⊢ e- ⇒ (Producer (- n m))]])
 
 (define-typed-syntax require-vid
   [(_ f)≫

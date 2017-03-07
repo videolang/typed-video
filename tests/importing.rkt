@@ -3,5 +3,20 @@
 (require-vid "blank20.rkt")
 (check-type (include-video "poly.rkt") : (Producer 0))
 (check-type (playlist (include-video "poly.rkt")) : (Producer 0))
-(check-type (include-video "poly.rkt" #:start 10 #:end 20) : (Producer 10))
+;; #:start too high
+(typecheck-fail
+ (include-video "poly.rkt" #:start 10 #:end 20)
+ #:with-msg (add-escs "expected (Producer 10), given (Producer 0)"))
+;; #:end too high
+(typecheck-fail
+ (include-video "poly.rkt" #:start 0 #:end 6)
+ #:with-msg (add-escs "expected (Producer 6), given (Producer 0)"))
+(check-type (include-video "blank20.rkt") : (Producer 20))
+(check-type (include-video "blank20.rkt" #:start 5 #:end 11) : (Producer 6))
+;; #:end too high
+(typecheck-fail
+ (include-video "blank20.rkt" #:start 5 #:end 21)
+ #:with-msg (add-escs "expected (Producer 21), given (Producer 20)"))
 (check-type vid : (Producer 20))
+(typecheck-fail (include-video "non-exist.rkt")
+                #:with-msg "cannot open module file")
