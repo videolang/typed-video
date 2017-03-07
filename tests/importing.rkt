@@ -6,7 +6,7 @@
 ;; #:start too high
 (typecheck-fail
  (include-video "poly.rkt" #:start 10 #:end 20)
- #:with-msg (add-escs "expected (Producer 10), given (Producer 0)"))
+ #:with-msg (add-escs "expected (Producer 20), given (Producer 0)"))
 ;; #:end too high
 (typecheck-fail
  (include-video "poly.rkt" #:start 0 #:end 6)
@@ -17,6 +17,10 @@
 (typecheck-fail
  (include-video "blank20.rkt" #:start 5 #:end 21)
  #:with-msg (add-escs "expected (Producer 21), given (Producer 20)"))
+; start > end
+(typecheck-fail
+ (include-video "blank20.rkt" #:start 6 #:end 5)
+ #:with-msg (add-escs "type mismatch: expected 6, given 5\n  expression: 5"))
 (check-type vid : (Producer 20))
 (typecheck-fail (include-video "non-exist.rkt")
                 #:with-msg "cannot open module file")

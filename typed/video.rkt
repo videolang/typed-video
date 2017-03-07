@@ -148,7 +148,7 @@
        ;; - n- and C- must go through the same expansion, but type-eval also expands
        ;; so be careful here
        #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
-               (add-C (add-orig #'(v:#%app v:>= n- 0)
+               (add-C (add-orig #'(>= n- 0)
                                 #`(>= #,(get-orig #'n-) 0))))]
        #'(Producer- n-)]
       [(_ x) (type-error
@@ -276,7 +276,11 @@
            (if (stx-null? #'ns.rest)
                #'tmp
                #`(#%plain-app v:- tmp . ns.rest))]
-          [o0 #`(#%plain-app v:- o0 ns.sum . ns.rest)]))]
+          [o0 (if (and (stx-null? #'ns.rest)
+                       (zero? (stx-e #'ns.sum)))
+                  #'o0
+                  (add-orig #`(#%plain-app v:- o0 ns.sum . ns.rest)
+                            #'(- o0 ns.sum . ns.rest)))]))]
       ;; #%app / (ie, quotient)
       [((~literal #%plain-app) (~literal v:quotient) . args)
        #:with ns:ints (type-evals #'args)
@@ -937,21 +941,13 @@
    [⊢ (v:#%app v:attach-filter p- f- ...) ⇒ Producer]])
 
 (define-typed-syntax cut-producer
-  [(_ p #:start m) ≫
-   [⊢ p ≫ p- (⇐ (Producer m)) (⇒ (~Producer n))]
-   [⊢ m ≫ m- ⇐ Int]
-   -----------
-   [⊢ (v:#%app v:cut-producer p- #:start m-) ⇒ (Producer (- n m))]]
-  [(_ p #:end n) ≫
-   [⊢ n ≫ n- ⇐ Int]
-   [⊢ p ≫ p- ⇐ (Producer n)]
-   -----------
-   [⊢ (v:#%app v:cut-producer p- #:end n-) ⇒ (Producer n)]]
-  [(_ p #:start m #:end n) ≫
-   [⊢ p ≫ _ ⇐ (Producer m)]
-   [⊢ p ≫ p- ⇐ (Producer (- n m))]
+  [(_ p (~optional (~seq #:start m) #:defaults ([m #'0]))
+        (~optional (~seq #:end n/#f))) ≫
    [⊢ m ≫ m- ⇐ 0]
-   [⊢ n ≫ n- ⇐ 0]
+   [⊢ p ≫ p- ⇒ (~Producer len)]
+   #:with n (if (attribute n/#f) #'n/#f #'len)
+   [⊢ n ≫ n- ⇐ m] ; end (or len) >= start
+   [⊢ p ≫ _ ⇐ (Producer n)]
    -----------
    [⊢ (v:#%app v:cut-producer p- #:start m- #:end n-) ⇒ (Producer (- n m))]])
    
@@ -1003,9 +999,8 @@
       ≫ (_ () (_ () e-)) ⇒ _]
    #:with n (if (attribute n/#f) #'n/#f #`#,(dynamic-require (stx->datum #'v) 'vid-ty2))
    [⊢ m ≫ m- ⇐ 0]
-   [⊢ n ≫ n- ⇐ 0]
-   [⊢ e- ≫ _ ⇐ (Producer m-)]
-   [⊢ e- ≫ _ ⇐ (Producer n-)]
+   [⊢ n ≫ n- ⇐ m] ; end >= start
+   [⊢ e- ≫ _ ⇐ (Producer n)] ; len >= end (and start)
    --------
    [⊢ e- ⇒ (Producer (- n m))]])
 

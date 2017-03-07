@@ -310,9 +310,14 @@
  (cut-producer (blank 9) #:start 10 #:end 20)
  #:with-msg
  (add-escs
-  "cut-producer: type mismatch: expected (Producer 10), given (Producer 9)"))
+  "cut-producer: type mismatch: expected (Producer 20), given (Producer 9)"))
 (typecheck-fail
  (cut-producer (blank 9) #:start 8 #:end 20)
  #:with-msg
  (add-escs
-  "cut-producer: type mismatch: expected (Producer (- 20 8)), given (Producer 9)"))
+  "cut-producer: type mismatch: expected (Producer 20), given (Producer 9)"))
+(typecheck-fail
+ (cut-producer (blank 9) #:start 6 #:end 5)
+ #:with-msg
+ (add-escs
+  "cut-producer: type mismatch: expected 6, given 5"))
