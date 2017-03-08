@@ -24,8 +24,9 @@
   (pattern (~or x:bool x:int x:num x:string) #:attr val #'x.val))
 
  ; extract list of quoted numbers
-(define (stx->nums stx)
-  (stx-map (syntax-parser [n:int (stx-e #'n.val)]) stx))
+(define stx->num
+  (syntax-parser [n:int (stx-e #'n.val)]))
+(define (stx->nums stx) (stx-map stx->num stx))
 (define (stx->bools stx)
   (stx-map (syntax-parser [n:bool (stx-e #'n.val)]) stx))
 (define (stx->datums stx)
@@ -54,6 +55,8 @@
 (define fmt format)
 (define-syntax stx/loc (make-rename-transformer #'syntax/loc))
 (define bound-id=? bound-identifier=?)
+(define ++ string-append)
+(define num->str number->string)
 
 (define (stx-filter-out-false . stxs)
   (filter

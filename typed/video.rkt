@@ -135,7 +135,7 @@
       [_:id #`(Producer- (v:#%datum . #,INF))] ; shorthand for inf length
       [(_ n:exact-nonnegative-integer) #'(Producer- n)]
       [(_ n) ; must accept Ints (as opposed to restricting to Nats), for -, etc
-       #:with n- (pass-orig (ev #'n) #'n)
+       #:with n- (ev #'n) ; let eval set orig
        ;; check type
        #:when (arith-type? #'n-) ; any Int arith expr arg is ok
        ;; commit to this clause, then check or propagate constraint
@@ -148,6 +148,9 @@
        ;; - n- and C- must go through the same expansion, but type-eval also expands
        ;; so be careful here
        #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
+               ;; (displayln (stx->datum #'n-))
+               ;; (printf "or : ~a\n" (get-orig #'n-))
+               ;; (printf "orn: ~a\n" (get-orig #'n))
                (add-C (add-orig #'(>= n- 0)
                                 #`(>= #,(get-orig #'n-) 0))))]
        #'(Producer- n-)]
@@ -349,7 +352,22 @@
       ;; It digs down too far, and replaces var I want with another orig
       ;; and I cant figure out where it comes from
       ;; (see failing make-conf-talk example in paper-tests.rkt)
-      [_ (format "~a" (stx->datum (get-orig CX)))]))
+      [_ #;(type->str CX) (format "~a" (stx->datum (get-orig CX)))]))
+
+  (define (Cs-map f Cs)
+    (let L ([C Cs])
+      (f
+       (syntax-parse C
+         [((~literal if-) e1 e2 e3)   #`(if- #,(L #'e1) #,(L #'e2) #,(L #'e3))]
+         [((~literal #%expression) e) #`(#%expression #,(L #'e))]
+         [e #'e]))))
+
+  (define (X+tys->str Xs tys) ; Xs are tyvars and tys are numbers
+    (string-join
+     (stx-map
+      (λ (X ty) (++ (type->str X) " = " (num->str (stx->num ty))))
+      Xs tys)
+     ","))
   )
 
 ;; prims ----------------------------------------------------------------------
@@ -622,13 +640,19 @@
    ;; TODO: use return type (if known) to help unify
    #:with (X+ty ...) (unify #'(τ_inX ...) #'(τ_arg ...))
    #:with solved-tys (lookup #'(X ...) #'(X+ty ...))
-   #:with (τ_in ... τ_out C) (substs (stx-append #'solved-tys #'(e_arg- ...))
-                                     ; TODO: filter non-Int xs?
-                                     ; actually, no filtering should be ok?
-                                     ; non-Ints would have erred already
-                                     ; if used improperly
-                                     #'(X ... x ...) 
-                                     #'(τ_inX ... τ_outX CX))
+   #:do[(define (inst e [id=? bound-id=?])
+          (substs (stx-append #'solved-tys #'(e_arg- ...))
+                  ; TODO: filter non-Int xs?
+                  ; actually, no filtering should be ok?
+                  ; non-Ints would have erred already if used improperly
+                  #'(X ... x ...)
+                  e
+                  id=?))
+        (define (inst-orig e)
+          (syntax-property e 'orig (list (inst (get-orig e) stx-datum=?))))
+        (define (do-inst e)
+          (inst-orig (inst e)))]
+   #:with (τ_in ... τ_out C) (stx-map do-inst #'(τ_inX ... τ_outX CX))
    #:with C- ((current-type-eval) #'C)
    ;; if fail, search for precise C in (and C ...), to avoid a large err msg
    #:fail-unless (stx-e #'C-) (format (string-join
@@ -639,37 +663,12 @@
                                        ";\n")
                                       (type->str #'e_fn-) ; fn
                                       (Cs->str #'CX #'C)  ; condition
-                                      (string-join        ; inferred
-                                       (map (λ (X ty)
-                                              (syntax-parse ty
-                                                [(_ n)
-                                                 (string-append (type->str X) " = "
-                                                                (number->string (stx->datum #'n)))]))
-                                           (stx->list #'(X ...))
-                                           (stx->list #'solved-tys))
-                                       ",")
+                                      (X+tys->str #'(X ...) #'solved-tys) ; inferred
                                       (type->str #'ty-fn)) ; fn type
    ;; else propagate C
    #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
-           (define (inst-orig e)
-             (syntax-property
-              e
-              'orig
-              (list (substs #'solved-tys
-                            #'(X ...)
-                            (get-orig e)
-                            stx-datum=?))))
-           ;; update C's orig with instantiation
-           (define C-with-new-orig
-             (let L ([C #'C])
-               (inst-orig
-                (syntax-parse C ; must update orig of each C individually
-                  [((~literal if-) e1 e2 e3)
-                   #`(if- #,(L #'e1) #,(L #'e2) #,(L #'e3))]
-                  [((~literal #%expression) e)
-                   #`(#%expression #,(L #'e))]
-                  [e #'e]))))
-           (add-C C-with-new-orig))]
+           ;; instantiate Cs orig before propagating
+           (add-C (Cs-map inst-orig #'C)))]
    [⊢ e_arg ≫ _ ⇐ τ_in] ... ; double expand?
    --------
    [⊢ (v:#%app e_fn- e_arg- ...) ⇒ τ_out]])

@@ -301,7 +301,9 @@
 
 (typecheck-fail
  (make-conf-talk (blank 200) (blank 200) (color "green") 0)
- #:with-msg (add-escs "#%app: while applying fn make-conf-talk;\nfailed condition: (>= n2 400);\ninferred: n2 = 200"))
+ #:with-msg
+ (add-escs
+  "#%app: while applying fn make-conf-talk;\nfailed condition: (>= n2 400);\ninferred: n2 = 200"))
 
 (check-type (cut-producer (blank 100) #:start 10 #:end 20) : (Producer 10))
 
