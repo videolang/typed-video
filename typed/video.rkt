@@ -58,7 +58,7 @@
 ;; 3) err: "expected stx": check type-eval returns stx or that case
 
 ;; helpful unicode chars
-;; ≫ τ ⊢ ⇒ ⇐ ≻ ∀ → (fn)
+;; ≫ τ ⊢ ⇒ ⇐ ≻ ∀ → (fn) ↑ (lift)
 
 ;; kinds ----------------------------------------------------------------------
 (define-syntax-category :: kind)
@@ -73,6 +73,9 @@
   (define Int+ (expand/df #'Int))
   (define (typecheck/Int? t) (typecheck? t Int+))
   (define (mk-type/Int t) (assign-type t Int+))
+
+  ;; lift e to type (with kind Int) and assign as e's type
+  (define (lift/Int e) (assign-type e (mk-type/Int e)))
   
   ;; handle arith exprs used as types
   (define (arith-type? t)
@@ -93,6 +96,10 @@
     (or ((current-type?) t)
         (type-error #:src t #:msg "given invalid type: ~a\n" t)))
   (define (is-types?/err ts) (stx-andmap is-type?/err ts)))
+
+;; macro version of lift/Int
+(define-syntax ↑/Int
+  (syntax-parser [(_ e) (lift/Int #'e)]))
 
 ;; TODO: support kws in function type
 (define-internal-type-constructor →)
@@ -268,7 +275,10 @@
        (mk-type/Int
         (if (stx-null? #'ns.rest)
             #'ns.sum
-            #'(#%plain-app v:+ ns.sum . ns.rest)))]
+            (if (zero? (stx-e #'ns.sum))
+                (add-orig #'(#%plain-app v:+ . ns.rest)
+                          #'(+ . ns.rest))
+                #'(#%plain-app v:+ ns.sum . ns.rest))))]
       ;; #%app -
       [((~literal #%plain-app) (~literal v:-) a0 . args)
        #:with ns:int+others (type-evals #'args)
@@ -394,9 +404,6 @@
             #'(v:#%app v:min e- ...)) ⇒ Int]])
 
 (define-typed-syntax max
-  [_:id ≫ ; HO use is binary
-   ----------
-   [⊢ v:max ⇒ (→ Int Int Int)]]
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
@@ -406,22 +413,16 @@
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
-   [⊢ (v:#%app v:+ e- ...) ⇒ #,(assign-type #'(v:#%app v:+ e- ...) #'Int)]]) ; lift
+   [≻ (↑/Int (v:#%app v:+ e- ...))]])
 
 (define-typed-syntax -
-  [_:id ≫ ; HO use is binary
-   ----------
-   [⊢ v:- ⇒ (→ Int Int)]]
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
-   [⊢ (v:#%app v:- e- ...) ⇒ #,(assign-type #'(v:#%app v:- e- ...) #'Int)]]) ; lift
+   [≻ (↑/Int (v:#%app v:- e- ...))]])
 
 ;; integer divide
 (define-typed-syntax /
-  #;[_:id ≫ ; HO use is binary
-   ----------
-   [⊢ v:+ ⇒ (→ Int Int)]]
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
@@ -523,7 +524,7 @@
 (define-typed-syntax #%datum
   [(_ . n:integer) ≫ ; use singleton types
    --------
-   [⊢ (v:#%datum . n) ⇒ #,(add-orig (mk-type/Int #'(v:#%datum . n)) #'n)]]
+   [≻ (↑/Int (v:#%datum . n))]]
   [(_ . n:number) ≫ ; Num needed by composite-transition
    --------
    [⊢ (v:#%datum . n) ⇒ Num]]
@@ -581,10 +582,16 @@
 
 (define-typed-syntax λ #:datum-literals (:)
   ;; TODO: remove dup clauses (first one just has extra -> ty-out pat)
-  [(_ (~and Xs {X ...}) ([x:id (~datum :) τ_in] ... #:when C0 (~datum ->) τ_out) e) ≫
+  [(_ (~and Xs {X ...}) ((~and (~seq [_:id (~datum :) τ_in] ...) ; all (use in fn type)
+                                ; Ints separate (use in ty env to lift int vars)
+                               (~seq (~or [i:id (~datum :) (~literal Int)]
+                                          [o:id (~datum :) ty-o]) ...))
+                         #:when C0 (~datum ->) τ_out) e) ≫
    #:when (brace? #'Xs)
    #:do[(current-Cs '())] ; reset Cs; this is essentially parameterize
-   [([X ≫ X- : Int] ...) ([x ≫ x- : τ_in] ...)
+   #:with (ty-i ...) (stx-map mk-type/Int #'(i ...)) ; lift
+   #:with ([y ty-y] ...) #`([i ty-i] ... [o ty-o] ...)
+   [([X ≫ X- : Int] ...) ([y ≫ x- : ty-y] ...)
      ⊢ [e ≫ e- ⇐ τ_out]
        [τ_in ≫ τ_in- ⇒ _] ...
        [τ_out ≫ τ_out- ⇒ _]
@@ -663,6 +670,7 @@
                                        ";\n")
                                       (type->str #'e_fn-) ; fn
                                       (Cs->str #'CX #'C)  ; condition
+                                      ; TODO: also print e_arg?
                                       (X+tys->str #'(X ...) #'solved-tys) ; inferred
                                       (type->str #'ty-fn)) ; fn type
    ;; else propagate C
@@ -740,8 +748,6 @@
   [(_ ([x e] [x_rst e_rst] ...) e_body ...) ≫
    --------
    [≻ (let ([x e]) (let* ([x_rst e_rst] ...) e_body ...))]])
-
-
 
 ;; basic Video producers ------------------------------------------------------
 (define-typed-syntax blank
