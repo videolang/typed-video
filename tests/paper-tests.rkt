@@ -224,8 +224,8 @@
 (define sl (blank 100))
 
 ;; TODO: improve function signatures?
-(define (make-speaker-slides-composite {n} [sp : (Producer n)]
-                                           [sl : (Producer n)] → (Producer n))
+(define (add-slides {n} [sp : (Producer n)]
+                        [sl : (Producer n)] → (Producer n))
   (let ([bg (blank (producer-length sp))])
     (multitrack sp sl logo bg
      #:transitions
@@ -234,10 +234,10 @@
            (composite-transition 1/3 0 2/3 1 #:top sl #:bottom bg))
      #:length (producer-length sp))))
 
-(check-type make-speaker-slides-composite
+(check-type add-slides
             : (→ #:bind {n} (Producer n) (Producer n) (Producer n)))
 ;; TODO: should this work? (defines at end)
-#;(define (make-talk-video main-talk)
+#;(define (add-bookend main-talk)
   ;; defines are after playlist
   (playlist begin-clip
             (fade-transition 200)
@@ -248,8 +248,8 @@
   (define end-clip (image circ-png #:length 500)))
 
 ;; TODO: dont need explicit side-condition?, should be generated?
-(define (make-talk-video {m} [main-talk : (Producer m)] #:when (>= m 400)
-                             → (Producer (+ m 600)))
+(define (add-bookend {m} [main-talk : (Producer m)] #:when (>= m 400)
+                         → (Producer (+ m 600)))
   ;; defines should be after playlist?
   ;; TODO: allow local defines
   ;; (define begin-clip (image circ-png #:length 500))
@@ -261,7 +261,7 @@
               main-talk
               (fade-transition #:length 200)
               end-clip)))
-(check-type make-talk-video
+(check-type add-bookend
             : (→ #:bind {m} (Producer m) (Producer (+ m 600)) #:when (>= m 400)))
 
 ; TODO: add filters
@@ -279,31 +279,31 @@
             : (→ #:bind {n} (Producer n) Producer Int (Producer n)))
 
 ;; TODO: use define*
-(define (make-conf-talk {n2} [sp : (Producer n2)]
-                             [sl : (Producer n2)]
-                             [a : Producer]
-                             [off : Int]
-                             → (Producer (+ n2 600)))
-  ;; (define X (make-speaker-slides-composite sp sl))
-  ;; (define Y (make-talk-video X))
-  ;; (define v (make-talk-video Y))
-  (let* ([X (make-speaker-slides-composite sp sl)]
-         ;[Y (make-talk-video X)]
-         [v (make-talk-video X)])
+(define (conference-talk {n2} [sp : (Producer n2)]
+                              [sl : (Producer n2)]
+                              [a : Producer]
+                              [off : Int]
+                              → (Producer (+ n2 600)))
+  ;; (define X (add-slides sp sl))
+  ;; (define Y (add-bookend X))
+  ;; (define v (add-bookend Y))
+  (let* ([X (add-slides sp sl)]
+         ;[Y (add-bookend X)]
+         [v (add-bookend X)])
     (attach-audio v a off)))
 (check-type
- make-conf-talk ; includes inferred constraint
+ conference-talk ; includes inferred constraint
  : (→ #:bind {n} (Producer n) (Producer n) Producer Int (Producer (+ n 600)) #:when (>= n 400)))
 
 (check-type
- (make-conf-talk (blank 1000) (blank 1000) (color "green") 0)
+ (conference-talk (blank 1000) (blank 1000) (color "green") 0)
  : (Producer 1600))
 
 (typecheck-fail
- (make-conf-talk (blank 200) (blank 200) (color "green") 0)
+ (conference-talk (blank 200) (blank 200) (color "green") 0)
  #:with-msg
  (add-escs
-  "#%app: while applying fn make-conf-talk;\nfailed condition: (>= n2 400);\ninferred: n2 = 200"))
+  "#%app: while applying fn conference-talk;\nfailed condition: (>= n2 400);\ninferred: n2 = 200"))
 
 (check-type (cut-producer (blank 100) #:start 10 #:end 20) : (Producer 10))
 
