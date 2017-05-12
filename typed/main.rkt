@@ -57,7 +57,7 @@
 
         ;; next two defs are vid's type; provide type as both:
         ;; - macro (used by require-vid)
-        ;; - length num (used via dynamic-require in include-video)
+        ;; - length num (used via dynamic-require in external-video)
         (r:define-syntax id-ty* (make-variable-like-transformer #'ty))
         ;; TODO:
         ;; I wanted to provide the whole stx obj instead of just length, but

@@ -17,7 +17,7 @@
  λ #%datum define begin if let let* displayln
  + - min max <= >= < >
  list car cdr null null? hash equal? and
- blank color image clip multitrack playlist include-video
+ blank color image clip multitrack playlist external-video
  composite-transition fade-transition
  scale-filter attach-filter grayscale-filter cut-producer
  get-property set-property)
@@ -933,17 +933,17 @@
    [⊢ (v:#%app v:scale-filter p- w- h-) ⇒ ty_out]])
 
 (define-typed-syntax grayscale-filter
-  [(_ p) ≫
-   [⊢ p ≫ p- ⇒ (~and ty_out (~Producer _))]
+  [(_) ≫
+;   [⊢ p ≫ p- ⇒ (~and ty_out (~Producer _))]
    -----------
-   [⊢ (v:#%app v:grayscale-filter p-) ⇒ ty_out]])
+   [⊢ (v:#%app v:grayscale-filter) ⇒ Filter]])
 
 (define-typed-syntax attach-filter
   [(_ p f ...) ≫
-   [⊢ p ≫ p- ⇒ (~Producer _)]
+   [⊢ p ≫ p- ⇒ (~and ty_out (~Producer _))]
    [⊢ f ≫ f- ⇐ Filter] ...
    -----------
-   [⊢ (v:#%app v:attach-filter p- f- ...) ⇒ Producer]])
+   [⊢ (v:#%app v:attach-filter p- f- ...) ⇒ ty_out]])
 
 (define-typed-syntax cut-producer
   [(_ p (~optional (~seq #:start m) #:defaults ([m #'0]))
@@ -985,7 +985,7 @@
    --------
    [⊢ (v:#%app v:set-property p- k- v-) ⇒ ty_out]])
 
-(define-typed-syntax include-video
+(define-typed-syntax external-video
  [(_ v (~optional (~seq #:start m #:end n/#f) #:defaults ([m #'0]))) ≫
    [⊢ v ≫ _ ⇐ String]
    #:with tmp (generate-temporary)
