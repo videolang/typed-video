@@ -172,7 +172,7 @@
   (add-orig
    (mk-type
     (syntax-parse stx
-      [_:id #'(Transition- (v:#%datum . 0))] ; shorthand for inf length
+      [_:id #'(Transition- 0)]
       [(_ n:exact-nonnegative-integer) #'(Transition- n)]))
    stx))
 
@@ -855,30 +855,63 @@
    ------------
    [⊢ (v:#%app v:multitrack p/t- ...) ⇒ (Producer (min n ...))]])
 
-;; TODO: check interleaving of producers and transitions
-;; TODO: check that stitching lengths is ok
-;; eg, this is bad (playlist (blank 1) (fade-transition #:len 2) (blank 1))
 (define-typed-syntax playlist
-  [(_ p ... #:transitions trans) ≫ ; producers + transitions
+  [(_ p ... #:transitions ~! t ...) ≫ ; producers + transitions, kw
+   ; t's must interleave p's
+   #:fail-unless (and (= (stx-length #'(p ...)) (add1 (stx-length #'(t ...)))))
+                 "insufficient number of transitions"
+   [⊢ t ≫ t- ⇒ (~Transition m)] ...
    [⊢ p ≫ p- ⇒ (~Producer n)] ...
-   ;; TODO: subtract transitions?
-   [⊢ trans ≫ trans- ⇒ (~Listof (~Transition _))]
+   #:with (p0 p1 ...) #'(p ...)
+   #:with (pa ... pb) #'(p ...)
+   ;; TODO: eliminate double-expansions?
+   [⊢ p1 ≫ _ ⇐ (Producer m)] ...
+   [⊢ pa ≫ _ ⇐ (Producer m)] ...
    ------------
-   [⊢ (v:#%app v:playlist p- ... #:transitions trans-)
-      ⇒ #,(mk-type #`(Producer- #,(stx+ (attribute n))))]]
+   [⊢ (v:#%app v:playlist p- ... #:transitions (v:list t- ...))
+      ⇒ (Producer (- (+ n ...) (+ m ...)))]]
   [(_ p ...) ≫ ; producers only
    [⊢ p ≫ p- ⇒ (~Producer n)] ...
    ------------
    [⊢ (v:#%app v:playlist p- ...) ⇒ #,(stx/loc this-syntax (Producer (+ n ...)))]]
-  [(_ p1 p/t ... pn) ≫ ; producers + transitions
-   [⊢ p1 ≫ p1- ⇒ (~Producer n1)]
-   [⊢ pn ≫ pn- ⇒ (~Producer nn)]
-   ;[⊢ p/t ≫ p/t- ⇒ (~or (~Producer n) (~Transition m))] ... ; doesnt work
+  [(~and pl (_ p/t ...)) ≫ ; producers + transitions, inline
    [⊢ p/t ≫ p/t- ⇒ P-or-T] ...
+   ; TODO: improve this manual validation
+   #:when (let L ([p/ts #'(p/t ...)] [tys #'(P-or-T ...)] [origs #'(p/t ...)])
+            (syntax-parse (list p/ts tys origs)
+              [(() _ _) #t]
+              [((p1 t p2 . rst)
+                ((~Producer n1)
+                 (~Transition m)
+                 (~and ty2 (~Producer n2)) . tyrst)
+                (op1 ot op2 . orst))
+               (and
+                (or (typecheck? #'n1 #'m)
+                    (type-error #:src #'pl
+                     #:msg
+                     (fmt
+                      "playlist: transition ~a (~a:~a) too long for adjacent producer ~a (~a:~a)"
+                      (type->str #'ot)
+                      (syntax-line #'ot) (syntax-column #'ot)
+                      (type->str #'op1)
+                      (syntax-line #'op1) (syntax-column #'op1))))
+                (or (typecheck? #'n2 #'m)
+                    (type-error #:src #'pl
+                     #:msg
+                     (fmt
+                      "playlist: transition ~a (~a:~a) too long for adjacent producer ~a (~a:~a)"
+                      (type->str #'ot)
+                      (syntax-line #'ot) (syntax-column #'ot)
+                      (type->str #'op2)
+                      (syntax-line #'op2) (syntax-column #'op2))))
+                    (L #'(p2 . rst) #'(ty2 . tyrst) #'(op2 . orst)))]
+              [((_ . rst) ((~Producer _) . tyrst) (_ . orst))
+               (L #'rst #'tyrst #'orst)]
+              [_ #f]))
    #:with ((~or (~Producer n) (~Transition m)) ...) #'(P-or-T ...)
    ------------
-   [⊢ (v:#%app v:playlist p1- p/t- ... pn-)
-      ⇒ (Producer (- (+ n1 n ... nn) (+ m ...)))]]
+   [⊢ (v:#%app v:playlist p/t- ...)
+      ⇒ (Producer (- (+ n ...) (+ m ...)))]]
   [xs ≫
    ------------
    [#:error

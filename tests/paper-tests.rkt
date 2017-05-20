@@ -191,10 +191,9 @@
   (λ ([a : Producer] [b : Producer])
     (playlist a b
               #:transitions
-              (list
                (composite-transition 0 0 1/2 1/2
                                      #:top a
-                                     #:bottom b)))))
+                                     #:bottom b))))
 (check-type (swiping-playlist (image circ-png) (color "green")) : Producer)
 (check-type (swiping-playlist (color "green") (clip vid-mp4)) : Producer)
 
@@ -306,6 +305,7 @@
   "#%app: while applying fn conference-talk;\nfailed condition: (>= n2 400);\ninferred: n2 = 200"))
 
 (check-type (cut-producer (blank 100) #:start 10 #:end 20) : (Producer 10))
+(check-type (cut-producer (blank 10) #:start 0 #:end 10) : (Producer 10))
 
 ;; start too high
 (typecheck-fail
@@ -323,3 +323,24 @@
  #:with-msg
  (add-escs
   "cut-producer: type mismatch: expected 6, given 5"))
+
+(typecheck-fail
+ (cut-producer (color "green" #:length 10) #:start 0 #:end 15)
+ #:with-msg
+ (add-escs
+  "cut-producer: type mismatch: expected (Producer 15), given (Producer 10)"))
+(typecheck-fail
+ (playlist (blank 10)
+           (fade-transition #:length 15)
+           (color "green" #:length 10))
+ #:with-msg
+ (add-escs
+  "playlist: transition (fade-transition #:length 15) (334:11) too long for adjacent producer (blank 10) (333:11)"))
+
+(typecheck-fail
+ (playlist (blank 15)
+           (fade-transition #:length 15)
+           (blank 11))
+ #:with-msg
+ (add-escs
+  "playlist: transition (fade-transition #:length 15) (342:11) too long for adjacent producer (blank 11)"))
