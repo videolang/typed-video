@@ -226,10 +226,8 @@
   
   ;; new type eval
   (define (lit-stx? x) (define y (stx-e x)) (or (string? y)))
-  (define old-eval (current-type-eval))
   ;; TODO: need to assign outputs here with types?
-  (define (new-eval t)
-    (syntax-parse (old-eval t)
+  (define-type-eval t
 ;      [t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
       ;; check for singleton types (includes tyvars)
       ;; - singletons eliminates some cases to handle specific #%apps
@@ -310,8 +308,7 @@
        (add-orig
         (mk-type (expand/df #'(Producer- n-)))
         #`(Producer #,(get-orig #'n-)))]
-      [t+ #'t+]))
-  (current-type-eval new-eval)
+      [t+ #'t+])
   (define (ev t) ((current-type-eval) t))
 
   (define (lookup Xs X+tys)

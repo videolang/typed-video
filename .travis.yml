@@ -35,7 +35,7 @@ before_install:
   - git clone https://github.com/stchang/racket-video.git ../video
   - raco pkg install --auto -n video ../video
   # install turnstile
-  - git clone --branch v0.1 https://github.com/stchang/macrotypes.git ../macrotypes
+  - git clone --branch tyeval https://github.com/stchang/macrotypes.git ../macrotypes
   - raco pkg install --auto -n turnstile ../macrotypes/
   
 install:
