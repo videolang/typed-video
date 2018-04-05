@@ -1,5 +1,5 @@
 #lang typed/video
-(require turnstile/examples/tests/rackunit-typechecking)
+(require turnstile/rackunit-typechecking)
 
 (check-type (color "green") : Producer)
 (check-type (color "blue" #:length 2) : (Producer 2))

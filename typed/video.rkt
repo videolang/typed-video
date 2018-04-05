@@ -6,9 +6,8 @@
   (syntax-parse stx
     [(_ . xs)
      #'(begin
-         (require (except-in
-                   video
-                   #%app / quotient producer-length ; manually provided
+         (require (except-in video
+                   #%app / #;producer-length ; manually provided
                    . xs))
          (provide (all-from-out video))
          (provide . xs))]))
@@ -17,8 +16,9 @@
  λ #%datum define begin if let let* displayln
  + - min max <= >= < >
  list car cdr null null? hash equal? and
- blank color image clip multitrack playlist external-video
- composite-transition fade-transition
+ producer-length
+ blank color clip multitrack playlist external-video
+ composite-transition fade-transition image
  scale-filter attach-filter grayscale-filter cut-producer
  get-property set-property)
 (provide top-level-playlist require-vid #%type
@@ -72,10 +72,10 @@
   ;; fns for marking a type with kind Int
   (define Int+ (expand/df #'Int))
   (define (typecheck/Int? t) (typecheck? t Int+))
-  (define (mk-type/Int t) (assign-type t Int+))
+  (define (mk-type/Int t) (assign-type t Int+ #:wrap? #f))
 
   ;; lift e to type (with kind Int) and assign as e's type
-  (define (lift/Int e) (assign-type e (mk-type/Int e)))
+  (define (lift/Int e) (assign-type e (mk-type/Int e) #:wrap? #t))
   
   ;; handle arith exprs used as types
   (define (arith-type? t)
@@ -112,8 +112,8 @@
 ;  [a ≫ #:do[(displayln (stx->datum #'a))] #:when #f --- [≻ (void)]]
   [(_ #:bind (X:id ...) (x:id (~datum :) ty) ... ty-out #:when C ~!) ≫
    [([X ≫ X- : Int] ...) ([x ≫ x- : ty] ...)
-    ⊢ [ty ≫ ty- ⇒ _] ...
-      [ty-out ≫ ty-out- ⇒ _]
+    ⊢ [ty ≫ ty- ⇒ : _] ...
+      [ty-out ≫ ty-out- ⇒ : _]
       [C ≫ C- ⇐ : Bool]]
    #:when (is-types?/err #'(ty- ... ty-out-))
    ----------
@@ -194,7 +194,7 @@
     ;; (printf "t2 = ~a\n" (stx->datum t2))
     (and t1 t2 ; #f possible bc tys may have "type" (:) *or* kind #%type (::)
     (or
-     ((current-type=?) t1 t2)
+     (type=? t1 t2)
      (equal? (stx-e t1) (stx-e t2)) ; for singleton types
      (and (Int-ty? t1) (Num? t2))
      (and (Int-ty? t1) (Int? t2))
@@ -553,11 +553,13 @@
   [(_ x:id e) ≫
    [⊢ e ≫ e- ⇒ τ]
    #:with y (generate-temporary #'x)
-   #:with y+props (transfer-props #'e- (assign-type #'y #'τ))
+   #:with y+props (transfer-props #'e- (assign-type #'y #'τ #:wrap? #t))
    --------
    [≻ (begin-
-        (define-syntax x (make-rename-transformer #'y+props))
-        (define- y e-))]]
+        ;; TODO: make typed-variable-rename also transfer props?
+;        (define-typed-variable-rename x ≫ y : τ)
+        (define-syntax- x (make-variable-like-transformer #'y+props))
+        (define- y  e-))]]
   ;; define for functions ---------------------------------
   ;; polymorphic: explicit forall, TODO: infer tyvars
   [(_ (f Xs [x (~datum :) ty] ... (~optional (~seq #:when C) #:defaults ([C #'#t]))
@@ -570,8 +572,11 @@
    #:with f- (add-orig (generate-temporary #'f) #'f)
    --------
    [≻ (begin-
-        (define-syntax- f (make-rename-transformer (⊢ f- : τ_f)))
-        (define- f- lam-))]]
+        ;        (define-syntax- f (make-rename-transformer (⊢ f- : τ_f)))
+        (define-syntax f (make-variable-like-transformer (assign-type #'f- #'τ_f #:wrap? #t)))
+;        (define-typed-variable-rename f ≫ f- : τ_f)
+        (define- f- lam-)
+)]]
   ;; monomorphic case
   [(_ (f [x (~datum :) ty] ... (~or (~datum →) (~datum ->)) ty_out) e ...+) ≫
    --------
@@ -590,8 +595,8 @@
    #:with ([y ty-y] ...) #`([i ty-i] ... [o ty-o] ...)
    [([X ≫ X- : Int] ...) ([y ≫ x- : ty-y] ...)
      ⊢ [e ≫ e- ⇐ τ_out]
-       [τ_in ≫ τ_in- ⇒ _] ...
-       [τ_out ≫ τ_out- ⇒ _]
+       [τ_in ≫ τ_in- ⇒ :: _] ...
+       [τ_out ≫ τ_out- ⇒ :: _]
        [C0 ≫ C0- ⇐ Bool]]
    #:when (is-types?/err #'(τ_in- ...))
    #:with new-orig
@@ -613,7 +618,7 @@
    #:when (brace? #'Xs)
    #:do[(current-Cs '())] ; reset Cs; this is essentially parameterize
    [([X ≫ X- : Int] ...) ([x ≫ x- : τ_in] ...)
-    ⊢ [e ≫ e- ⇒ τ_out] [τ_in ≫ τ_in- ⇒ _] ... [C0 ≫ C0- ⇐ Bool]]
+    ⊢ [e ≫ e- ⇒ τ_out] [τ_in ≫ τ_in- ⇒ :: _] ... [C0 ≫ C0- ⇐ Bool]]
    #:when (is-types?/err #'(τ_in- ...))
    #:with new-orig
           (if (equal? #t (stx-e (stx-cadr #'C0-)))
@@ -636,7 +641,6 @@
 
 (define-typed-syntax typed-app
   [(_ e_fn e_arg ...) ≫ ; polym, must instantiate
-;   #:do[(printf "applying ~a\n" (stx->datum (get-orig #'e_fn)))]
    [⊢ e_fn ≫ e_fn- ⇒ (~and ty-fn (~∀ (X ...) ~! (~∀ (x ...) (~→ τ_inX ... τ_outX CX))))]
    #:fail-unless (stx-length=? #'[τ_inX ...] #'[e_arg ...])
                  (num-args-fail-msg #'e_fn #'[τ_inX ...] #'[e_arg ...])
@@ -674,7 +678,9 @@
    #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
            ;; instantiate Cs orig before propagating
            (add-C (Cs-map inst-orig #'C)))]
-   [⊢ e_arg ≫ _ ⇐ τ_in] ... ; double expand?
+   #:fail-unless (typechecks? #'(τ_arg ...) #'(τ_in ...))
+                 (format "app failed ~a" (stx->datum this-syntax))
+;   [⊢ e_arg ≫ _ ⇐ τ_in] ... ; double expand?
    --------
    [⊢ (v:#%app e_fn- e_arg- ...) ⇒ τ_out]])
 
@@ -770,12 +776,12 @@
   [(_ f) ≫
    [⊢ f ≫ f- ⇐ String]
    --------
-   [⊢ (v:#%app v:image f-) ⇒ Producer]]
+   [⊢ (v:#%app v:clip f-) ⇒ Producer]]
   [(_ f #:length n) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ n ≫ n- ⇐ Int]
    --------
-   [⊢ (v:#%app v:image f- #:length n-) ⇒ (Producer n)]])
+   [⊢ (v:#%app v:clip f- #:length n-) ⇒ (Producer n)]])
 
 ;; returns length or false
 (define-for-syntax (get-clip-len f)
@@ -818,7 +824,18 @@
    --------
    [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ (Producer (- m n))]])
 
-(provide (typed-out [[v:producer-length : (→ #:bind {n} [x : (Producer n)] n #:when #t)]
+(define-typed-syntax producer-length
+  [(_ p) ≫
+   [⊢ p ≫ p- ⇒ (~Producer n)]
+   -------
+   [⊢ (v:#%app v:producer-length p-) ⇒ n]])
+   
+   
+#;(define-syntax producer-length
+  (make-variable-like-transformer
+   (assign-type #'v:producer-length #'(→ #:bind {n} [x : (Producer n)] n #:when #t) #:wrap? #f)))
+;(provide producer-length)
+#;(provide (typed-out [[v:producer-length : (→ #:bind {n} [x : (Producer n)] n #:when #t)]
                      producer-length]))
 
 ;; playlist combinators -------------------------------------------------------
@@ -859,11 +876,19 @@
                  "insufficient number of transitions"
    [⊢ t ≫ t- ⇒ (~Transition m)] ...
    [⊢ p ≫ p- ⇒ (~Producer n)] ...
-   #:with (p0 p1 ...) #'(p ...)
-   #:with (pa ... pb) #'(p ...)
-   ;; TODO: eliminate double-expansions?
-   [⊢ p1 ≫ _ ⇐ (Producer m)] ...
-   [⊢ pa ≫ _ ⇐ (Producer m)] ...
+   #:with p-tys #'(stx-map typeof #'(p- ...))
+   #:with p-tys-expected #'(stx-map (current-type-eval) #'((Producer m) ...))
+   #:with (t0 t1 ...) #'p-tys
+   #:with (ta ... tb) #'p-tys
+   #:fail-unless (typechecks? (stx-map typeof #'(t1 ...)) #'p-tys-expected)
+                 "playlist producers and transitions have incompatible lengths"
+   #:fail-unless (typechecks? (stx-map typeof #'(ta ...)) #'p-tys-expected)
+                 "playlist producers and transitions have incompatible lengths"
+   ;; #:with (p0 p1 ...) #'(p ...)
+   ;; #:with (pa ... pb) #'(p ...)
+   ;; ;; TODO: eliminate double-expansions?
+   ;; [⊢ p1 ≫ _ ⇐ (Producer m)] ...
+   ;; [⊢ pa ≫ _ ⇐ (Producer m)] ...
    ------------
    [⊢ (v:#%app v:playlist p- ... #:transitions (v:list t- ...))
       ⇒ (Producer (- (+ n ...) (+ m ...)))]]
@@ -872,6 +897,7 @@
    ------------
    [⊢ (v:#%app v:playlist p- ...) ⇒ #,(stx/loc this-syntax (Producer (+ n ...)))]]
   [(~and pl (_ p/t ...)) ≫ ; producers + transitions, inline
+   #:do[(displayln "we'll never get here")]
    [⊢ p/t ≫ p/t- ⇒ P-or-T] ...
    ; TODO: improve this manual validation
    #:when (let L ([p/ts #'(p/t ...)] [tys #'(P-or-T ...)] [origs #'(p/t ...)])
@@ -918,10 +944,14 @@
      #'xs)]])
 (define-typed-syntax top-level-playlist
   [(_ p ...) ≫
-   [⊢ p ≫ p- ⇒ ty] ...
-   #:with ((p* _) ...) (stx-filter-out-false #'(p ...) #'(ty ...))
+   ;; "run" tests (via expansion)
+;   #:do[(displayln "unexpanded:")(pretty-print (stx->datum #'(p ...)))]
+;   #:with ps- (expands/stop #'(p ...))
+;   #:do[(displayln "expanded")(pretty-print (stx->datum #'ps-))]
+   ;; but dont include in runtime program
+;   #:with ((p* _) ...) (stx-filter-out-false #'ps- #;#'(p ...) (stx-map typeof #'ps-))
    --------
-   [≻ (playlist p* ...)]])
+   [≻ (playlist p ...)]])
 
 ;; transitions ----------------------------------------------------------------
 (define-typed-syntax composite-transition
@@ -982,7 +1012,9 @@
    [⊢ p ≫ p- ⇒ (~Producer len)]
    #:with n (if (attribute n/#f) #'n/#f #'len)
    [⊢ n ≫ n- ⇐ m] ; end (or len) >= start
-   [⊢ p ≫ _ ⇐ (Producer n)]
+;  [⊢ p ≫ _ ⇐ (Producer n)]
+   #:fail-unless (typecheck? (typeof #'p-) ((current-type-eval) #'(Producer n)))
+                 "cut-producer arg has wrong length"
    -----------
    [⊢ (v:#%app v:cut-producer p- #:start m- #:end n-) ⇒ (Producer (- n m))]])
    
@@ -1017,11 +1049,23 @@
 
 (define-typed-syntax external-video
  [(_ v (~optional (~seq #:start m #:end n/#f) #:defaults ([m #'0]))) ≫
-   [⊢ v ≫ _ ⇐ String]
-   #:with tmp (generate-temporary)
-   #:with vid (datum->syntax #'v 'vid)
-   #:with vid-ty2 (datum->syntax #'v 'vid-ty2)
-   [⊢ (let-syntax-
+  [⊢ v ≫ _ ⇐ String]
+  #:with tmp (generate-temporary)
+  #:with vid (datum->syntax #'v 'vid)
+  #:with vid-ty2 (datum->syntax #'v 'vid-ty2)
+  #:with (_ () (_ () e-))
+         (expand/df
+          #'(let-syntax-
+             ([tmp (make-variable-like-transformer
+                    (let ([len (dynamic-require 'v 'vid-ty2)])
+                      (syntax-property
+                       #'(dynamic-require 'v 'vid)
+                       ':
+                       (add-orig
+                        ((current-type-eval) #`(Producer #,len))
+                        #`(Producer #,len)))))])
+             tmp))
+   #;[⊢ (let-syntax-
        ([tmp (make-variable-like-transformer
               (let ([len (dynamic-require 'v 'vid-ty2)])
                 (syntax-property
@@ -1035,7 +1079,9 @@
    #:with n (if (attribute n/#f) #'n/#f #`#,(dynamic-require (stx->datum #'v) 'vid-ty2))
    [⊢ m ≫ m- ⇐ 0]
    [⊢ n ≫ n- ⇐ m] ; end >= start
-   [⊢ e- ≫ _ ⇐ (Producer n)] ; len >= end (and start)
+  #:fail-unless (typecheck? (typeof #'e-) ((current-type-eval) #'(Producer n)))
+                "external video bad length"
+;   [⊢ e- ≫ _ ⇐ (Producer n)] ; len >= end (and start)
    --------
    [⊢ e- ⇒ (Producer (- n m))]])
 
@@ -1049,4 +1095,4 @@
         (require- (prefix-in- v- f))
         (define-syntax- vid
           (make-rename-transformer
-           (assign-type #'v-vid #'v-vid-ty))))]])
+           (assign-type #'v-vid #'v-vid-ty #:wrap? #t))))]])

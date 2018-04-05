@@ -1,5 +1,5 @@
 #lang typed/video
-(require turnstile/examples/tests/rackunit-typechecking)
+(require turnstile/rackunit-typechecking)
 
 ;; more dependent type tests
 
