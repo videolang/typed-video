@@ -1,5 +1,5 @@
 #lang typed/video
-(require turnstile/examples/tests/rackunit-typechecking)
+(require turnstile/rackunit-typechecking)
 
 (check-type (color "green" #:length 1) : (Producer 1))
 
@@ -26,3 +26,4 @@
 (clip "vid.mp4" #:length 3)
 
 (define blue-clip (color "blue" #:length 8))
+

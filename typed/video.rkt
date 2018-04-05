@@ -6,9 +6,8 @@
   (syntax-parse stx
     [(_ . xs)
      #'(begin
-         (require (except-in
-                   video
-                   #%app / quotient producer-length ; manually provided
+         (require (except-in video
+                   #%app / #;producer-length ; manually provided
                    . xs))
          (provide (all-from-out video))
          (provide . xs))]))
@@ -17,8 +16,9 @@
  λ #%datum define begin if let let* displayln
  + - min max <= >= < >
  list car cdr null null? hash equal? and
- blank color image clip multitrack playlist external-video
- composite-transition fade-transition
+ producer-length
+ blank color clip multitrack playlist external-video
+ composite-transition fade-transition image
  scale-filter attach-filter grayscale-filter cut-producer
  get-property set-property)
 (provide top-level-playlist require-vid #%type
@@ -72,10 +72,12 @@
   ;; fns for marking a type with kind Int
   (define Int+ (expand/df #'Int))
   (define (typecheck/Int? t) (typecheck? t Int+))
-  (define (mk-type/Int t) (assign-type t Int+))
+  (define (mk-type/Int t) (assign-type t Int+ #:wrap? #f))
 
   ;; lift e to type (with kind Int) and assign as e's type
   (define (lift/Int e) (assign-type e (mk-type/Int e)))
+  ;; lift e to type (with kind Int) and assign as e's type
+  (define (lift/Int* e+ e) (assign-type e+ (mk-type/Int e)))
   
   ;; handle arith exprs used as types
   (define (arith-type? t)
@@ -100,6 +102,8 @@
 ;; macro version of lift/Int
 (define-syntax ↑/Int
   (syntax-parser [(_ e) (lift/Int #'e)]))
+(define-syntax ↑/Int*
+  (syntax-parser [(_ e+ e) (lift/Int* #'e+ #'e)]))
 
 ;; TODO: support kws in function type
 (define-internal-type-constructor →)
@@ -112,8 +116,8 @@
 ;  [a ≫ #:do[(displayln (stx->datum #'a))] #:when #f --- [≻ (void)]]
   [(_ #:bind (X:id ...) (x:id (~datum :) ty) ... ty-out #:when C ~!) ≫
    [([X ≫ X- : Int] ...) ([x ≫ x- : ty] ...)
-    ⊢ [ty ≫ ty- ⇒ _] ...
-      [ty-out ≫ ty-out- ⇒ _]
+    ⊢ [ty ≫ ty- ⇒ : _] ...
+      [ty-out ≫ ty-out- ⇒ : _]
       [C ≫ C- ⇐ : Bool]]
    #:when (is-types?/err #'(ty- ... ty-out-))
    ----------
@@ -158,7 +162,7 @@
                ;; (displayln (stx->datum #'n-))
                ;; (printf "or : ~a\n" (get-orig #'n-))
                ;; (printf "orn: ~a\n" (get-orig #'n))
-               (add-C (add-orig #'(>= n- 0)
+               (add-C (add-orig #;(assign-type #'C- #'Bool #:wrap? #f) #'(>= n- 0)
                                 #`(>= #,(get-orig #'n-) 0))))]
        #'(Producer- n-)]
       [(_ x) (type-error
@@ -194,7 +198,7 @@
     ;; (printf "t2 = ~a\n" (stx->datum t2))
     (and t1 t2 ; #f possible bc tys may have "type" (:) *or* kind #%type (::)
     (or
-     ((current-type=?) t1 t2)
+     (type=? t1 t2)
      (equal? (stx-e t1) (stx-e t2)) ; for singleton types
      (and (Int-ty? t1) (Num? t2))
      (and (Int-ty? t1) (Int? t2))
@@ -226,15 +230,21 @@
   
   ;; new type eval
   (define (lit-stx? x) (define y (stx-e x)) (or (string? y)))
+
+  (define typechecking? (make-parameter #f))
   ;; TODO: need to assign outputs here with types?
-  (define-type-eval t
-;      [t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
+  (define old-eval (current-type-eval))
+  (define (new-eval t)
+    (syntax-parse (old-eval t)
+    ;(define-type-eval t
+      #;[t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
       ;; check for singleton types (includes tyvars)
       ;; - singletons eliminates some cases to handle specific #%apps
       ;; eg producer-length
       [t+
+       #:do[(define k-as-ty (typeof #'t+))]
        #:when
-       (let ([k-as-ty (typeof #'t+)])
+       (let (#;[k-as-ty (typeof #'t+)])
          (and
           k-as-ty
           (or (integer? (stx-e k-as-ty)) ; literal
@@ -308,7 +318,11 @@
        (add-orig
         (mk-type (expand/df #'(Producer- n-)))
         #`(Producer #,(get-orig #'n-)))]
-      [t+ #'t+])
+      [t+ #'t+]))
+  (current-type-eval
+   (lambda (t)
+     (parameterize ([typechecking? #t])
+       (new-eval t))))
   (define (ev t) ((current-type-eval) t))
 
   (define (lookup Xs X+tys)
@@ -334,7 +348,8 @@
   ;; fns for manipulating constraints ---------------------
   (define current-Cs (make-parameter '()))
 
-  (define (add-C C)
+  (define (add-C C*)
+    (define C (syntax-local-introduce C*))
     (unless (C-exists? C)
       (current-Cs (cons C (current-Cs)))))
   (define (C-exists? C)
@@ -365,7 +380,8 @@
     (let L ([C Cs])
       (f
        (syntax-parse C
-         [((~literal if-) e1 e2 e3)   #`(if- #,(L #'e1) #,(L #'e2) #,(L #'e3))]
+         [((~literal if-) e1 e2 e3)
+          (assign-type #`(if- #,(L #'e1) #,(L #'e2) #,(L #'e3)) #'Bool)]
          [((~literal #%expression) e) #`(#%expression #,(L #'e))]
          [e #'e]))))
 
@@ -410,13 +426,13 @@
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
-   [≻ (↑/Int (v:#%app v:+ e- ...))]])
+   [≻ (↑/Int* (v:#%app v:+ e- ...) (v:#%app v:+ e ...))]])
 
 (define-typed-syntax -
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
-   [≻ (↑/Int (v:#%app v:- e- ...))]])
+   [≻ (↑/Int* (v:#%app v:- e- ...) (v:#%app v:- e ...))]])
 
 ;; integer divide
 (define-typed-syntax /
@@ -505,9 +521,10 @@
   [⊢ (v:#%app v:cdr e-) ⇒ τ-lst])
 (define-typed-syntax list
   [(_) ≫ --- [≻ null]]
-  [(_ x . rst) ⇐ (~Listof τ) ≫ ; has expected type
+  [(_ x ...) ⇐ (~Listof τ) ≫ ; has expected type
+   [⊢ x ≫ x- ⇐ τ] ...
    --------
-   [⊢ (cons (add-expected x τ) (list . rst))]]
+   [⊢ (v:#%app v:list x- ...) ⇒ (Listof τ)]]
   [(_ x . rst) ≫ ; no expected type
    --------
    [≻ (cons x (list . rst))]])
@@ -553,11 +570,13 @@
   [(_ x:id e) ≫
    [⊢ e ≫ e- ⇒ τ]
    #:with y (generate-temporary #'x)
-   #:with y+props (transfer-props #'e- (assign-type #'y #'τ))
+   #:with y+props (transfer-props #'e- (assign-type #'y #'τ #:wrap? #f))
    --------
    [≻ (begin-
-        (define-syntax x (make-rename-transformer #'y+props))
-        (define- y e-))]]
+        ;; TODO: make typed-variable-rename also transfer props?
+;        (define-typed-variable-rename x ≫ y : τ)
+        (define-syntax- x (make-variable-like-transformer #'y+props))
+        (define- y  e-))]]
   ;; define for functions ---------------------------------
   ;; polymorphic: explicit forall, TODO: infer tyvars
   [(_ (f Xs [x (~datum :) ty] ... (~optional (~seq #:when C) #:defaults ([C #'#t]))
@@ -570,8 +589,11 @@
    #:with f- (add-orig (generate-temporary #'f) #'f)
    --------
    [≻ (begin-
-        (define-syntax- f (make-rename-transformer (⊢ f- : τ_f)))
-        (define- f- lam-))]]
+        ;        (define-syntax- f (make-rename-transformer (⊢ f- : τ_f)))
+        (define-syntax f (make-variable-like-transformer (assign-type #'f- #'τ_f #:wrap? #f)))
+;        (define-typed-variable-rename f ≫ f- : τ_f)
+        (define- f- lam-)
+)]]
   ;; monomorphic case
   [(_ (f [x (~datum :) ty] ... (~or (~datum →) (~datum ->)) ty_out) e ...+) ≫
    --------
@@ -587,15 +609,20 @@
    #:when (brace? #'Xs)
    #:do[(current-Cs '())] ; reset Cs; this is essentially parameterize
    #:with (ty-i ...) (stx-map mk-type/Int #'(i ...)) ; lift
-   #:with ([y ty-y] ...) #`([i ty-i] ... [o ty-o] ...)
-   [([X ≫ X- : Int] ...) ([y ≫ x- : ty-y] ...)
+   #:with (z ...) (stx-map fresh #'(i ...))
+   #:with (z/Int ...) (stx-map mk-type/Int #'(z ...))
+;   #:with ([y ty-y] ...) #`([i ty-i] ... [o ty-o] ...)
+   #:with ([y ty-y] ...) #`([i z/Int] ... [o ty-o] ...)
+   [([X ≫ X- : Int] ...) ([z ≫ z- : Int] ...) ([y ≫ x- : ty-y] ...)
      ⊢ [e ≫ e- ⇐ τ_out]
-       [τ_in ≫ τ_in- ⇒ _] ...
-       [τ_out ≫ τ_out- ⇒ _]
+       [τ_in ≫ τ_in- ⇒ :: _] ...
+       [τ_out ≫ τ_out- ⇒ :: _]
        [C0 ≫ C0- ⇐ Bool]]
    #:when (is-types?/err #'(τ_in- ...))
    #:with new-orig
-          (if (equal? #t (stx-e (stx-cadr #'C0-)))
+          ; drop #t in (and #t ...) for err msgs
+          ; but this wont catch cases where C0 tyeval's to #t (?)
+          (if (equal? #t (stx-e #'C0))
               (cond [(null? (current-Cs)) #'()]
                     [(= 1 (length (current-Cs)))
                      (get-orig (car (current-Cs)))]
@@ -606,17 +633,22 @@
    #:with C (add-orig
              #`(and C0- #,@(map syntax-local-introduce (current-Cs)))
              #'new-orig)
+   #:with (o- ...) (stx-drop #'(x- ...) (stx-length #'(i ...)))
+   #:with (z+tin ...) (stx-map (lambda (z t) #`[#,z : #,t]) #'(z- ... o- ...) #'(τ_in- ...))
    -------
-   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X- ...) [x- : τ_in-] ... τ_out- #:when C)]]
+   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X- ...) z+tin ... τ_out- #:when C)]]
+;   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X- ...) [x- : τ_in-] ... τ_out- #:when C)]]
   ;; similar to first case but no return type
   [(_ (~and Xs {X ...}) ([x:id (~datum :) τ_in] ... #:when C0) e) ≫
    #:when (brace? #'Xs)
    #:do[(current-Cs '())] ; reset Cs; this is essentially parameterize
    [([X ≫ X- : Int] ...) ([x ≫ x- : τ_in] ...)
-    ⊢ [e ≫ e- ⇒ τ_out] [τ_in ≫ τ_in- ⇒ _] ... [C0 ≫ C0- ⇐ Bool]]
+    ⊢ [e ≫ e- ⇒ τ_out] [τ_in ≫ τ_in- ⇒ :: _] ... [C0 ≫ C0- ⇐ Bool]]
    #:when (is-types?/err #'(τ_in- ...))
    #:with new-orig
-          (if (equal? #t (stx-e (stx-cadr #'C0-)))
+          ; drop #t in (and #t ...) for err msgs
+          ; but this wont catch cases where C0 tyeval's to #t (?)
+          (if (equal? #t (stx-e #'C0))
               (cond [(null? (current-Cs)) #'()]
                     [(= 1 (length (current-Cs)))
                      (get-orig (car (current-Cs)))]
@@ -636,10 +668,9 @@
 
 (define-typed-syntax typed-app
   [(_ e_fn e_arg ...) ≫ ; polym, must instantiate
-;   #:do[(printf "applying ~a\n" (stx->datum (get-orig #'e_fn)))]
    [⊢ e_fn ≫ e_fn- ⇒ (~and ty-fn (~∀ (X ...) ~! (~∀ (x ...) (~→ τ_inX ... τ_outX CX))))]
    #:fail-unless (stx-length=? #'[τ_inX ...] #'[e_arg ...])
-                 (num-args-fail-msg #'e_fn #'[τ_inX ...] #'[e_arg ...])
+                  (num-args-fail-msg #'e_fn #'[τ_inX ...] #'[e_arg ...])
    [⊢ e_arg ≫ e_arg- ⇒ τ_arg] ...
    ;; TODO: use return type (if known) to help unify
    #:with (X+ty ...) (unify #'(τ_inX ...) #'(τ_arg ...))
@@ -674,6 +705,8 @@
    #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
            ;; instantiate Cs orig before propagating
            (add-C (Cs-map inst-orig #'C)))]
+   ;; #:fail-unless (typechecks? #'(τ_arg ...) #'(τ_in ...))
+   ;;               (format "app failed ~a" (stx->datum this-syntax))
    [⊢ e_arg ≫ _ ⇐ τ_in] ... ; double expand?
    --------
    [⊢ (v:#%app e_fn- e_arg- ...) ⇒ τ_out]])
@@ -770,12 +803,12 @@
   [(_ f) ≫
    [⊢ f ≫ f- ⇐ String]
    --------
-   [⊢ (v:#%app v:image f-) ⇒ Producer]]
+   [⊢ (v:#%app v:clip f-) ⇒ Producer]]
   [(_ f #:length n) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ n ≫ n- ⇐ Int]
    --------
-   [⊢ (v:#%app v:image f- #:length n-) ⇒ (Producer n)]])
+   [⊢ (v:#%app v:clip f- #:length n-) ⇒ (Producer n)]])
 
 ;; returns length or false
 (define-for-syntax (get-clip-len f)
@@ -818,7 +851,17 @@
    --------
    [⊢ (v:#%app v:clip f- #:start n- #:end m-) ⇒ (Producer (- m n))]])
 
-(provide (typed-out [[v:producer-length : (→ #:bind {n} [x : (Producer n)] n #:when #t)]
+(define-typed-syntax producer-length
+  [(_ p) ≫
+   [⊢ p ≫ p- ⇒ (~Producer n)]
+   -------
+   [⊢ #,(if (typechecking?) #'n #'(v:#%app v:producer-length p-)) ⇒ n]])
+      
+#;(define-syntax producer-length
+  (make-variable-like-transformer
+   (assign-type #'v:producer-length #'(→ #:bind {n} [x : (Producer n)] n #:when #t) #:wrap? #f)))
+;(provide producer-length)
+#;(provide (typed-out [[v:producer-length : (→ #:bind {n} [x : (Producer n)] n #:when #t)]
                      producer-length]))
 
 ;; playlist combinators -------------------------------------------------------
@@ -859,6 +902,14 @@
                  "insufficient number of transitions"
    [⊢ t ≫ t- ⇒ (~Transition m)] ...
    [⊢ p ≫ p- ⇒ (~Producer n)] ...
+   ;; #:with p-tys #'(stx-map typeof #'(p- ...))
+   ;; #:with p-tys-expected #'(stx-map (current-type-eval) #'((Producer m) ...))
+   ;; #:with (t0 t1 ...) #'p-tys
+   ;; #:with (ta ... tb) #'p-tys
+   ;; #:fail-unless (typechecks? (stx-map typeof #'(t1 ...)) #'p-tys-expected)
+   ;;               "playlist producers and transitions have incompatible lengths"
+   ;; #:fail-unless (typechecks? (stx-map typeof #'(ta ...)) #'p-tys-expected)
+   ;;               "playlist producers and transitions have incompatible lengths"
    #:with (p0 p1 ...) #'(p ...)
    #:with (pa ... pb) #'(p ...)
    ;; TODO: eliminate double-expansions?
@@ -918,8 +969,12 @@
      #'xs)]])
 (define-typed-syntax top-level-playlist
   [(_ p ...) ≫
-   [⊢ p ≫ p- ⇒ ty] ...
-   #:with ((p* _) ...) (stx-filter-out-false #'(p ...) #'(ty ...))
+   ;; "run" tests (via expansion)
+;   #:do[(displayln "unexpanded:")(pretty-print (stx->datum #'(p ...)))]
+   #:with ps- (expands/stop #'(p ...))
+;   #:do[(displayln "expanded")(pretty-print (stx->datum #'ps-))]
+   ;; but dont include in runtime program
+   #:with ((p* _) ...) (stx-filter-out-false #'ps- #;#'(p ...) (stx-map typeof #'ps-))
    --------
    [≻ (playlist p* ...)]])
 
@@ -983,6 +1038,8 @@
    #:with n (if (attribute n/#f) #'n/#f #'len)
    [⊢ n ≫ n- ⇐ m] ; end (or len) >= start
    [⊢ p ≫ _ ⇐ (Producer n)]
+   ;; #:fail-unless (typecheck? (typeof #'p-) ((current-type-eval) #'(Producer n)))
+   ;;               "cut-producer arg has wrong length"
    -----------
    [⊢ (v:#%app v:cut-producer p- #:start m- #:end n-) ⇒ (Producer (- n m))]])
    
@@ -1017,11 +1074,23 @@
 
 (define-typed-syntax external-video
  [(_ v (~optional (~seq #:start m #:end n/#f) #:defaults ([m #'0]))) ≫
-   [⊢ v ≫ _ ⇐ String]
-   #:with tmp (generate-temporary)
-   #:with vid (datum->syntax #'v 'vid)
-   #:with vid-ty2 (datum->syntax #'v 'vid-ty2)
-   [⊢ (let-syntax-
+  [⊢ v ≫ _ ⇐ String]
+  #:with tmp (generate-temporary)
+  #:with vid (datum->syntax #'v 'vid)
+  #:with vid-ty2 (datum->syntax #'v 'vid-ty2)
+  #:with (_ () (_ () e-))
+         (expand/df
+          #'(let-syntax-
+             ([tmp (make-variable-like-transformer
+                    (let ([len (dynamic-require 'v 'vid-ty2)])
+                      (syntax-property
+                       #'(dynamic-require 'v 'vid)
+                       ':
+                       (add-orig
+                        ((current-type-eval) #`(Producer #,len))
+                        #`(Producer #,len)))))])
+             tmp))
+   #;[⊢ (let-syntax-
        ([tmp (make-variable-like-transformer
               (let ([len (dynamic-require 'v 'vid-ty2)])
                 (syntax-property
@@ -1035,6 +1104,8 @@
    #:with n (if (attribute n/#f) #'n/#f #`#,(dynamic-require (stx->datum #'v) 'vid-ty2))
    [⊢ m ≫ m- ⇐ 0]
    [⊢ n ≫ n- ⇐ m] ; end >= start
+  ;; #:fail-unless (typecheck? (typeof #'e-) ((current-type-eval) #'(Producer n)))
+  ;;               "external video bad length"
    [⊢ e- ≫ _ ⇐ (Producer n)] ; len >= end (and start)
    --------
    [⊢ e- ⇒ (Producer (- n m))]])
@@ -1049,4 +1120,4 @@
         (require- (prefix-in- v- f))
         (define-syntax- vid
           (make-rename-transformer
-           (assign-type #'v-vid #'v-vid-ty))))]])
+           (assign-type #'v-vid #'v-vid-ty #:wrap? #f))))]])

@@ -1,5 +1,5 @@
 #lang typed/video
-(require turnstile/examples/tests/rackunit-typechecking)
+(require turnstile/rackunit-typechecking)
 (check-type (blank 1) : (Producer 1))
 (check-type (blank 1) : (Producer 0)) ; shorter type ok
 (check-not-type (blank 1) : (Producer 2)) ; longer type not ok
