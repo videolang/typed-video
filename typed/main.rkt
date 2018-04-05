@@ -57,11 +57,10 @@
      ;; TODO: for now, dont post-process
      ;; (post-process should wrap this top-level-playlist)
      #:with p #`(tv:top-level-playlist . #,(reverse (syntax->list #'exprs)))
-     #:do[(displayln (current-use-stop-list?))]
-     #:with p- ;(expand/stop #'p)
-     (local-expand/capture-lifts #'p 'expression (list #'erased))
-     #:do[(displayln "expanding in video begin:")]
-     #:do[(pretty-print (syntax->datum #'p-))]
+     #:with p- (expand/stop #'p)
+               ;(local-expand/capture-lifts #'p 'expression (list #'erased))
+     ;; #:do[(displayln "expanding in video begin:")]
+     ;; #:do[(pretty-print (syntax->datum #'p-))]
      #:with (~and (~Producer (_ n)) ty) (typeof #'p-);(syntax-property #'p- ':) ; typeof
      #`(r:begin
         (r:define id* p-) ; this is the implicit "vid" binding
@@ -93,7 +92,7 @@
             (kernel-form-identifier-list)
             (list #'provide #'require)
             tv-ids ru-ids)))
-        (pretty-print (stx->datum expanded))
+;        (pretty-print (stx->datum expanded))
         (syntax-parse expanded
           #:literals (tv:begin)
           [(tv:begin b ...)
