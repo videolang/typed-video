@@ -5,10 +5,12 @@
   syntax/modcode)
 
 (define (expand/observe stx)
-  (parameterize ([current-expand-observe (lambda (x y)
-                                           (when (equal? x 'visit) #;(= x 0) ;(= x 0)
-;                                             (writeln x)
-                                             (writeln y)))])
+  (parameterize ([current-expand-observe
+                  (lambda (event-type stxobj)
+                    (when (or #;(equal? event-type 'lift-expr)
+                              (equal? event-type 'visit))
+;                          (writeln event-type)
+                          (writeln stxobj)))])
     (expand-syntax stx)))
 
 (define rel-path (vector-ref (current-command-line-arguments) 0))

@@ -75,7 +75,9 @@
   (define (mk-type/Int t) (assign-type t Int+ #:wrap? #f))
 
   ;; lift e to type (with kind Int) and assign as e's type
-  (define (lift/Int e) (assign-type e (mk-type/Int e) #:wrap? #t))
+  (define (lift/Int e) (assign-type e (mk-type/Int e)))
+  ;; lift e to type (with kind Int) and assign as e's type
+  (define (lift/Int* e+ e) (assign-type e+ (mk-type/Int e)))
   
   ;; handle arith exprs used as types
   (define (arith-type? t)
@@ -100,6 +102,8 @@
 ;; macro version of lift/Int
 (define-syntax ↑/Int
   (syntax-parser [(_ e) (lift/Int #'e)]))
+(define-syntax ↑/Int*
+  (syntax-parser [(_ e+ e) (lift/Int* #'e+ #'e)]))
 
 ;; TODO: support kws in function type
 (define-internal-type-constructor →)
@@ -158,7 +162,7 @@
                ;; (displayln (stx->datum #'n-))
                ;; (printf "or : ~a\n" (get-orig #'n-))
                ;; (printf "orn: ~a\n" (get-orig #'n))
-               (add-C (add-orig #'(>= n- 0)
+               (add-C (add-orig #;(assign-type #'C- #'Bool #:wrap? #f) #'(>= n- 0)
                                 #`(>= #,(get-orig #'n-) 0))))]
        #'(Producer- n-)]
       [(_ x) (type-error
@@ -226,15 +230,21 @@
   
   ;; new type eval
   (define (lit-stx? x) (define y (stx-e x)) (or (string? y)))
+
+  (define typechecking? (make-parameter #f))
   ;; TODO: need to assign outputs here with types?
-  (define-type-eval t
-;      [t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
+  (define old-eval (current-type-eval))
+  (define (new-eval t)
+    (syntax-parse (old-eval t)
+    ;(define-type-eval t
+      #;[t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
       ;; check for singleton types (includes tyvars)
       ;; - singletons eliminates some cases to handle specific #%apps
       ;; eg producer-length
       [t+
+       #:do[(define k-as-ty (typeof #'t+))]
        #:when
-       (let ([k-as-ty (typeof #'t+)])
+       (let (#;[k-as-ty (typeof #'t+)])
          (and
           k-as-ty
           (or (integer? (stx-e k-as-ty)) ; literal
@@ -308,7 +318,11 @@
        (add-orig
         (mk-type (expand/df #'(Producer- n-)))
         #`(Producer #,(get-orig #'n-)))]
-      [t+ #'t+])
+      [t+ #'t+]))
+  (current-type-eval
+   (lambda (t)
+     (parameterize ([typechecking? #t])
+       (new-eval t))))
   (define (ev t) ((current-type-eval) t))
 
   (define (lookup Xs X+tys)
@@ -334,9 +348,10 @@
   ;; fns for manipulating constraints ---------------------
   (define current-Cs (make-parameter '()))
 
-  (define (add-C C)
+  (define (add-C C*)
+    (define C (syntax-local-introduce C*))
     (unless (C-exists? C)
-      (current-Cs (cons (syntax-local-introduce C) (current-Cs)))))
+      (current-Cs (cons C (current-Cs)))))
   (define (C-exists? C)
     ;; dont use typecheck? will add unwanted constraints
     (ormap (λ (C0) (type=? C C0)) (current-Cs)))
@@ -365,7 +380,8 @@
     (let L ([C Cs])
       (f
        (syntax-parse C
-         [((~literal if-) e1 e2 e3)   #`(if- #,(L #'e1) #,(L #'e2) #,(L #'e3))]
+         [((~literal if-) e1 e2 e3)
+          (assign-type #`(if- #,(L #'e1) #,(L #'e2) #,(L #'e3)) #'Bool)]
          [((~literal #%expression) e) #`(#%expression #,(L #'e))]
          [e #'e]))))
 
@@ -410,13 +426,13 @@
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
-   [≻ (↑/Int (v:#%app v:+ e- ...))]])
+   [≻ (↑/Int* (v:#%app v:+ e- ...) (v:#%app v:+ e ...))]])
 
 (define-typed-syntax -
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
-   [≻ (↑/Int (v:#%app v:- e- ...))]])
+   [≻ (↑/Int* (v:#%app v:- e- ...) (v:#%app v:- e ...))]])
 
 ;; integer divide
 (define-typed-syntax /
@@ -505,9 +521,10 @@
   [⊢ (v:#%app v:cdr e-) ⇒ τ-lst])
 (define-typed-syntax list
   [(_) ≫ --- [≻ null]]
-  [(_ x . rst) ⇐ (~Listof τ) ≫ ; has expected type
+  [(_ x ...) ⇐ (~Listof τ) ≫ ; has expected type
+   [⊢ x ≫ x- ⇐ τ] ...
    --------
-   [⊢ (cons (add-expected x τ) (list . rst))]]
+   [⊢ (v:#%app v:list x- ...) ⇒ (Listof τ)]]
   [(_ x . rst) ≫ ; no expected type
    --------
    [≻ (cons x (list . rst))]])
@@ -592,8 +609,11 @@
    #:when (brace? #'Xs)
    #:do[(current-Cs '())] ; reset Cs; this is essentially parameterize
    #:with (ty-i ...) (stx-map mk-type/Int #'(i ...)) ; lift
-   #:with ([y ty-y] ...) #`([i ty-i] ... [o ty-o] ...)
-   [([X ≫ X- : Int] ...) ([y ≫ x- : ty-y] ...)
+   #:with (z ...) (stx-map fresh #'(i ...))
+   #:with (z/Int ...) (stx-map mk-type/Int #'(z ...))
+;   #:with ([y ty-y] ...) #`([i ty-i] ... [o ty-o] ...)
+   #:with ([y ty-y] ...) #`([i z/Int] ... [o ty-o] ...)
+   [([X ≫ X- : Int] ...) ([z ≫ z- : Int] ...) ([y ≫ x- : ty-y] ...)
      ⊢ [e ≫ e- ⇐ τ_out]
        [τ_in ≫ τ_in- ⇒ :: _] ...
        [τ_out ≫ τ_out- ⇒ :: _]
@@ -613,14 +633,17 @@
    #:with C (add-orig
              #`(and C0- #,@(map syntax-local-introduce (current-Cs)))
              #'new-orig)
+   #:with (o- ...) (stx-drop #'(x- ...) (stx-length #'(i ...)))
+   #:with (z+tin ...) (stx-map (lambda (z t) #`[#,z : #,t]) #'(z- ... o- ...) #'(τ_in- ...))
    -------
-   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X- ...) [x- : τ_in-] ... τ_out- #:when C)]]
+   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X- ...) z+tin ... τ_out- #:when C)]]
+;   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X- ...) [x- : τ_in-] ... τ_out- #:when C)]]
   ;; similar to first case but no return type
   [(_ (~and Xs {X ...}) ([x:id (~datum :) τ_in] ... #:when C0) e) ≫
    #:when (brace? #'Xs)
    #:do[(current-Cs '())] ; reset Cs; this is essentially parameterize
    [([X ≫ X- : Int] ...) ([x ≫ x- : τ_in] ...)
-    ⊢ [e ≫ e- ⇒ τ_out] [τ_in ≫ τ_in- ⇒ :: _] ... [C0 ≫ ((~literal erased) C0-) ⇐ Bool]]
+    ⊢ [e ≫ e- ⇒ τ_out] [τ_in ≫ τ_in- ⇒ :: _] ... [C0 ≫ C0- ⇐ Bool]]
    #:when (is-types?/err #'(τ_in- ...))
    #:with new-orig
           ; drop #t in (and #t ...) for err msgs
@@ -647,7 +670,7 @@
   [(_ e_fn e_arg ...) ≫ ; polym, must instantiate
    [⊢ e_fn ≫ e_fn- ⇒ (~and ty-fn (~∀ (X ...) ~! (~∀ (x ...) (~→ τ_inX ... τ_outX CX))))]
    #:fail-unless (stx-length=? #'[τ_inX ...] #'[e_arg ...])
-                 (num-args-fail-msg #'e_fn #'[τ_inX ...] #'[e_arg ...])
+                  (num-args-fail-msg #'e_fn #'[τ_inX ...] #'[e_arg ...])
    [⊢ e_arg ≫ e_arg- ⇒ τ_arg] ...
    ;; TODO: use return type (if known) to help unify
    #:with (X+ty ...) (unify #'(τ_inX ...) #'(τ_arg ...))
@@ -832,7 +855,7 @@
   [(_ p) ≫
    [⊢ p ≫ p- ⇒ (~Producer n)]
    -------
-   [⊢ n ⇒ n]])
+   [⊢ #,(if (typechecking?) #'n #'(v:#%app v:producer-length p-)) ⇒ n]])
       
 #;(define-syntax producer-length
   (make-variable-like-transformer
@@ -1097,4 +1120,4 @@
         (require- (prefix-in- v- f))
         (define-syntax- vid
           (make-rename-transformer
-           (assign-type #'v-vid #'v-vid-ty #:wrap? #t))))]])
+           (assign-type #'v-vid #'v-vid-ty #:wrap? #f))))]])
