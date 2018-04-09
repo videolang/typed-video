@@ -91,13 +91,7 @@
              (let ([ty-as-kk (typeof ty-as-k)])
                (and ty-as-kk (typecheck/Int? ty-as-kk))))))
 
-  (current-type? (λ (t) (or (#%type? (kindof t)) (arith-type? t))))
-
-  ;; calls current-type? but immediately fails if #f
-  (define (is-type?/err t)
-    (or ((current-type?) t)
-        (type-error #:src t #:msg "given invalid type: ~a\n" t)))
-  (define (is-types?/err ts) (stx-andmap is-type?/err ts)))
+  (current-type? (λ (t) (or (#%type? (kindof t)) (arith-type? t)))))
 
 ;; macro version of lift/Int
 (define-syntax ↑/Int
@@ -114,12 +108,12 @@
 ;; - C: constraint of type Bool
 (define-kinded-syntax →
 ;  [a ≫ #:do[(displayln (stx->datum #'a))] #:when #f --- [≻ (void)]]
+  ;; can't use :type stx class on input bc it needs X and x in context
   [(_ #:bind (X:id ...) (x:id (~datum :) ty) ... ty-out #:when C ~!) ≫
    [([X ≫ X- : Int] ...) ([x ≫ x- : ty] ...)
-    ⊢ [ty ≫ ty- ⇒ : _] ...
-      [ty-out ≫ ty-out- ⇒ : _]
+    ⊢ [ty ≫ ty-:type ⇒ : _] ...
+      [ty-out ≫ ty-out-:type ⇒ : _]
       [C ≫ C- ⇐ : Bool]]
-   #:when (is-types?/err #'(ty- ... ty-out-))
    ----------
    [≻ #,(add-orig
          #`(∀ (X- ...) (∀ (x- ...) #,(mk-type #'(→- ty- ... ty-out- C-))))
@@ -237,10 +231,13 @@
   (define (new-eval t)
     (syntax-parse (old-eval t)
     ;(define-type-eval t
-      #;[t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
+;      [t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
       ;; check for singleton types (includes tyvars)
       ;; - singletons eliminates some cases to handle specific #%apps
       ;; eg producer-length
+      ;; TODO: remove this case?
+      ;; - shouldnt have terms like x : x :: Int lifted to the type level?
+      ;; - should only lift x :: Int part instead?
       [t+
        #:do[(define k-as-ty (typeof #'t+))]
        #:when
@@ -385,6 +382,25 @@
          [((~literal #%expression) e) #`(#%expression #,(L #'e))]
          [e #'e]))))
 
+  ;; Adds given C- to (current-Cs)
+  ;; Returns stx obj suitable for use in program,
+  ;; ie, the Cs are combined with `and`, with a nice 'orig property
+  (define (merge-Cs C- #:orig C)
+    (define orig
+      (if (equal? #t (stx-e C))
+          ; drop #t in (and #t ...) for err msgs
+          ; TODO: does this catch cases where C tyeval's to #t (?)
+          (cond [(null? (current-Cs)) #'()]
+                [(= 1 (length (current-Cs)))
+                 (get-orig (car (current-Cs)))]
+                [else #`(and #,@(map get-orig (current-Cs)))])
+          (if (null? (current-Cs))
+              (get-orig C)
+              #`(and #,(get-orig C) #,@(map get-orig (current-Cs))))))
+    (add-orig
+     #`(and #,C- #,@(map syntax-local-introduce (current-Cs)))
+     orig))
+
   (define (X+tys->str Xs tys) ; Xs are tyvars and tys are numbers
     (string-join
      (stx-map
@@ -492,6 +508,7 @@
    [⊢ (v:#%app v:< e- ...) ⇒ Bool]])
 
 ;; list and hash --------------------------------------------------------------
+;; copied from turnstile/examples/stlc+cons.rkt
 (define-typed-syntax null
   [(_ ~! τi:type-ann) ≫
    --------
@@ -569,14 +586,11 @@
   ;; define for values ------------------------------------
   [(_ x:id e) ≫
    [⊢ e ≫ e- ⇒ τ]
-   #:with y (generate-temporary #'x)
    #:with y+props (transfer-props #'e- (assign-type #'y #'τ #:wrap? #f))
    --------
-   [≻ (begin-
-        ;; TODO: make typed-variable-rename also transfer props?
-;        (define-typed-variable-rename x ≫ y : τ)
-        (define-syntax- x (make-variable-like-transformer #'y+props))
-        (define- y  e-))]]
+   [≻ (begin- ; TODO: make typed-variable-rename also transfer props?
+              (define-typed-variable-rename x ≫ y+props : τ)
+              (define- y  e-))]]
   ;; define for functions ---------------------------------
   ;; polymorphic: explicit forall, TODO: infer tyvars
   [(_ (f Xs [x (~datum :) ty] ... (~optional (~seq #:when C) #:defaults ([C #'#t]))
@@ -586,79 +600,60 @@
    ;; but need to to get back τ_f, which may contain new constraints
    ;; (when compared to ty-expected)
    [⊢ (λ Xs ([x : ty] ... #:when C -> ty_out) (begin e ...)) ≫ lam- ⇒ τ_f]
-   #:with f- (add-orig (generate-temporary #'f) #'f)
+   #:with f- (fresh #'f)
    --------
-   [≻ (begin-
-        ;        (define-syntax- f (make-rename-transformer (⊢ f- : τ_f)))
-        (define-syntax f (make-variable-like-transformer (assign-type #'f- #'τ_f #:wrap? #f)))
-;        (define-typed-variable-rename f ≫ f- : τ_f)
-        (define- f- lam-)
-)]]
+   [≻ (begin- (define-typed-variable-rename f ≫ f- : τ_f)
+              (define- f- lam-))]]
   ;; monomorphic case
   [(_ (f [x (~datum :) ty] ... (~or (~datum →) (~datum ->)) ty_out) e ...+) ≫
    --------
    [≻ (define (f {} [x : ty] ... -> ty_out) e ...)]])
 
 (define-typed-syntax λ #:datum-literals (:)
-  ;; TODO: remove dup clauses (first one just has extra -> ty-out pat)
-  [(_ (~and Xs {X ...}) ((~and (~seq [_:id (~datum :) τ_in] ...) ; all (use in fn type)
-                                ; Ints separate (use in ty env to lift int vars)
-                               (~seq (~or [i:id (~datum :) (~literal Int)]
-                                          [o:id (~datum :) ty-o]) ...))
-                         #:when C0 (~datum ->) τ_out) e) ≫
-   #:when (brace? #'Xs)
+  ;; TODO: remove dup clauses? (first one just has extra -> ty-out pat)
+  [(_ (~and Xs (~fail #:unless (brace? #'Xs)) {X ...})
+      ((~and ; 1st pat: all input types (for use in resulting fn type);
+             ; need this case to preserve order of args
+             ; (which gets mixed up by the next pattern)
+             (~seq [_:id (~datum :) τ_in] ...)
+             ; 2nd pat: separate Ints (use in ty env to lift int vars)
+             ; TODO: better way to match Int types than with ~literal?
+             (~seq (~or [i:id (~datum :) (~literal Int)]
+                        [o:id (~datum :) tyo]) ...))
+       #:when C0 (~datum ->) τ_out) e ~!) ≫
    #:do[(current-Cs '())] ; reset Cs; this is essentially parameterize
-   #:with (ty-i ...) (stx-map mk-type/Int #'(i ...)) ; lift
-   #:with (z ...) (stx-map fresh #'(i ...))
-   #:with (z/Int ...) (stx-map mk-type/Int #'(z ...))
-;   #:with ([y ty-y] ...) #`([i ty-i] ... [o ty-o] ...)
-   #:with ([y ty-y] ...) #`([i z/Int] ... [o ty-o] ...)
-   [([X ≫ X- : Int] ...) ([z ≫ z- : Int] ...) ([y ≫ x- : ty-y] ...)
-     ⊢ [e ≫ e- ⇐ τ_out]
-       [τ_in ≫ τ_in- ⇒ :: _] ...
-       [τ_out ≫ τ_out- ⇒ :: _]
-       [C0 ≫ C0- ⇐ Bool]]
-   #:when (is-types?/err #'(τ_in- ...))
-   #:with new-orig
-          ; drop #t in (and #t ...) for err msgs
-          ; but this wont catch cases where C0 tyeval's to #t (?)
-          (if (equal? #t (stx-e #'C0))
-              (cond [(null? (current-Cs)) #'()]
-                    [(= 1 (length (current-Cs)))
-                     (get-orig (car (current-Cs)))]
-                    [else #`(and #,@(map get-orig (current-Cs)))])
-              (if (null? (current-Cs))
-                  (get-orig #'C0)
-                  #`(and #,(get-orig #'C0) #,@(map get-orig (current-Cs)))))
-   #:with C (add-orig
-             #`(and C0- #,@(map syntax-local-introduce (current-Cs)))
-             #'new-orig)
+   #:with (i* ...) (stx-map fresh #'(i ...))
+   #:with (i-as-ty ...) (stx-map mk-type/Int #'(i* ...))
+   #:with ([x tyx] ...) #`([i i-as-ty] ... [o tyo] ...)
+   ;; need to bind x ... (ie i ... o ...) for both term and type
+   ;; PREVIOUSLY: added x : x :: Int to type env,
+   ;;  where x the type was bound bc int-def-ctx binds recursively,
+   ;;  but did not expand to x-, causing subst problems in typed-app
+   ;; NOW: add indirection i* ..., and explicitly bind it in type env,
+   ;;  and add x : i* :: Int to type env,
+   ;;  then use x- to bind term and i*- to bind type
+   [([X ≫ X- : Int] ...) ([i* ≫ i*- : Int] ...) ([x ≫ x- : tyx] ...)
+    ⊢ [e ≫ e- ⇐ τ_out]
+    ;; can't use :type stx class on input bc it needs X and x in context
+    [τ_in ≫ τ_in-:type ⇒ :: _] ...
+    [τ_out ≫ τ_out-:type ⇒ :: _]
+    [C0 ≫ C0- ⇐ Bool]]
+   #:with C (merge-Cs #'C0- #:orig #'C0)
    #:with (o- ...) (stx-drop #'(x- ...) (stx-length #'(i ...)))
-   #:with (z+tin ...) (stx-map (lambda (z t) #`[#,z : #,t]) #'(z- ... o- ...) #'(τ_in- ...))
+   ;; NOTE: the xs are in different order than surface program
+   ;; - but that is ok since they are only used for polymorphic inst in typed-app
+   ;; - the τ_in- are still in order, which is what matters
+   #:with (x+tin ...) (stx-map (λ (x t) #`[#,x : #,t]) #'(i*- ... o- ...) #'(τ_in- ...))
    -------
-   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X- ...) z+tin ... τ_out- #:when C)]]
-;   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X- ...) [x- : τ_in-] ... τ_out- #:when C)]]
+   [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X- ...) x+tin ... τ_out- #:when C)]]
   ;; similar to first case but no return type
-  [(_ (~and Xs {X ...}) ([x:id (~datum :) τ_in] ... #:when C0) e) ≫
-   #:when (brace? #'Xs)
+  ;; TODO: separate Int args, like in first case
+  [(_ (~and Xs (~fail #:unless (brace? #'Xs)) {X ...})
+      ([x:id (~datum :) τ_in] ... #:when C0) e) ≫
    #:do[(current-Cs '())] ; reset Cs; this is essentially parameterize
    [([X ≫ X- : Int] ...) ([x ≫ x- : τ_in] ...)
-    ⊢ [e ≫ e- ⇒ τ_out] [τ_in ≫ τ_in- ⇒ :: _] ... [C0 ≫ C0- ⇐ Bool]]
-   #:when (is-types?/err #'(τ_in- ...))
-   #:with new-orig
-          ; drop #t in (and #t ...) for err msgs
-          ; but this wont catch cases where C0 tyeval's to #t (?)
-          (if (equal? #t (stx-e #'C0))
-              (cond [(null? (current-Cs)) #'()]
-                    [(= 1 (length (current-Cs)))
-                     (get-orig (car (current-Cs)))]
-                    [else #`(and #,@(map get-orig (current-Cs)))])
-              (if (null? (current-Cs))
-                  (get-orig #'C0)
-                  #`(and #,(get-orig #'C0) #,@(map get-orig (current-Cs)))))
-   #:with C (add-orig
-             #`(and C0- #,@(map syntax-local-introduce (current-Cs)))
-             #'new-orig)
+    ⊢ [e ≫ e- ⇒ τ_out] [τ_in ≫ τ_in-:type ⇒ :: _] ... [C0 ≫ C0- ⇐ Bool]]
+   #:with C (merge-Cs #'C0- #:orig #'C0)
    -------
    [⊢ (v:λ (x- ...) e-) ⇒ (→ #:bind (X- ...) [x- : τ_in-] ... τ_out #:when C)]]
   ;; no explicit tyvars
@@ -902,14 +897,6 @@
                  "insufficient number of transitions"
    [⊢ t ≫ t- ⇒ (~Transition m)] ...
    [⊢ p ≫ p- ⇒ (~Producer n)] ...
-   ;; #:with p-tys #'(stx-map typeof #'(p- ...))
-   ;; #:with p-tys-expected #'(stx-map (current-type-eval) #'((Producer m) ...))
-   ;; #:with (t0 t1 ...) #'p-tys
-   ;; #:with (ta ... tb) #'p-tys
-   ;; #:fail-unless (typechecks? (stx-map typeof #'(t1 ...)) #'p-tys-expected)
-   ;;               "playlist producers and transitions have incompatible lengths"
-   ;; #:fail-unless (typechecks? (stx-map typeof #'(ta ...)) #'p-tys-expected)
-   ;;               "playlist producers and transitions have incompatible lengths"
    #:with (p0 p1 ...) #'(p ...)
    #:with (pa ... pb) #'(p ...)
    ;; TODO: eliminate double-expansions?
@@ -970,11 +957,9 @@
 (define-typed-syntax top-level-playlist
   [(_ p ...) ≫
    ;; "run" tests (via expansion)
-;   #:do[(displayln "unexpanded:")(pretty-print (stx->datum #'(p ...)))]
    #:with ps- (expands/stop #'(p ...))
-;   #:do[(displayln "expanded")(pretty-print (stx->datum #'ps-))]
    ;; but dont include in runtime program
-   #:with ((p* _) ...) (stx-filter-out-false #'ps- #;#'(p ...) (stx-map typeof #'ps-))
+   #:with ((p* _) ...) (stx-filter-out-false #'ps- (stx-map typeof #'ps-))
    --------
    [≻ (playlist p* ...)]])
 
@@ -1038,8 +1023,6 @@
    #:with n (if (attribute n/#f) #'n/#f #'len)
    [⊢ n ≫ n- ⇐ m] ; end (or len) >= start
    [⊢ p ≫ _ ⇐ (Producer n)]
-   ;; #:fail-unless (typecheck? (typeof #'p-) ((current-type-eval) #'(Producer n)))
-   ;;               "cut-producer arg has wrong length"
    -----------
    [⊢ (v:#%app v:cut-producer p- #:start m- #:end n-) ⇒ (Producer (- n m))]])
    
@@ -1090,22 +1073,9 @@
                         ((current-type-eval) #`(Producer #,len))
                         #`(Producer #,len)))))])
              tmp))
-   #;[⊢ (let-syntax-
-       ([tmp (make-variable-like-transformer
-              (let ([len (dynamic-require 'v 'vid-ty2)])
-                (syntax-property
-                 #'(dynamic-require 'v 'vid)
-                 ':
-                 (add-orig
-                  (local-expand #`(Producer #,len) 'expression null)
-                  #`(Producer #,len)))))])
-       tmp)
-      ≫ (_ () (_ () e-)) ⇒ _]
    #:with n (if (attribute n/#f) #'n/#f #`#,(dynamic-require (stx->datum #'v) 'vid-ty2))
    [⊢ m ≫ m- ⇐ 0]
    [⊢ n ≫ n- ⇐ m] ; end >= start
-  ;; #:fail-unless (typecheck? (typeof #'e-) ((current-type-eval) #'(Producer n)))
-  ;;               "external video bad length"
    [⊢ e- ≫ _ ⇐ (Producer n)] ; len >= end (and start)
    --------
    [⊢ e- ⇒ (Producer (- n m))]])
