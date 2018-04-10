@@ -8,6 +8,7 @@
   (parameterize ([current-expand-observe
                   (lambda (event-type stxobj)
                     (when (or #;(equal? event-type 'lift-expr)
+                              (equal? event-type 0)
                               (equal? event-type 'visit))
 ;                          (writeln event-type)
                           (writeln stxobj)))])

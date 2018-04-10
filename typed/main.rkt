@@ -68,7 +68,7 @@
         ;; next two defs are vid's type; provide type as both:
         ;; - macro (used by require-vid)
         ;; - length num (used via dynamic-require in external-video)
-        (r:define-syntax id-ty* (make-variable-like-transformer #'ty))
+;        (r:define-syntax id-ty* (make-variable-like-transformer #'ty))
         ;; TODO:
         ;; I wanted to provide the whole stx obj instead of just length, but
         ;; I got stx= errors when trying to compare imported vs module-local stx
@@ -80,7 +80,7 @@
         ;; use rename-out so require can use raw vid w/o renaming
         ;; (since vid can't be used within its own module anyways)
         ;; - should untyped video do this as well?
-        (r:provide (rename-out [id* id] [id-ty* id-ty]))
+        (r:provide (rename-out [id* id] #;[id-ty* id-ty]))
         (r:provide (rename-out [id-ty2* id-ty2])))]
     [(_ id post-process exprs . body)
      (syntax-parse #'body

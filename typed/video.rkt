@@ -586,10 +586,13 @@
   ;; define for values ------------------------------------
   [(_ x:id e) ≫
    [⊢ e ≫ e- ⇒ τ]
+   #:with y (generate-temporary)
    #:with y+props (transfer-props #'e- (assign-type #'y #'τ #:wrap? #f))
    --------
    [≻ (begin- ; TODO: make typed-variable-rename also transfer props?
-              (define-typed-variable-rename x ≫ y+props : τ)
+        (define-syntax x
+          (make-variable-like-transformer #'y+props))
+;                      (define-typed-variable-rename x ≫ y : τ)
               (define- y  e-))]]
   ;; define for functions ---------------------------------
   ;; polymorphic: explicit forall, TODO: infer tyvars
@@ -1066,19 +1069,22 @@
           #'(let-syntax-
              ([tmp (make-variable-like-transformer
                     (let ([len (dynamic-require 'v 'vid-ty2)])
-                      (syntax-property
-                       #'(dynamic-require 'v 'vid)
-                       ':
-                       (add-orig
-                        ((current-type-eval) #`(Producer #,len))
-                        #`(Producer #,len)))))])
+                      (displayln "asdf")
+                      (displayln len)
+;                      (syntax-property
+                      #'(void) ;#'(dynamic-require 'v 'vid)
+                      ))])
+;                       ':
+;                        ((current-type-eval) #`(Producer #,len)))))])
              tmp))
-   #:with n (if (attribute n/#f) #'n/#f #`#,(dynamic-require (stx->datum #'v) 'vid-ty2))
-   [⊢ m ≫ m- ⇐ 0]
-   [⊢ n ≫ n- ⇐ m] ; end >= start
-   [⊢ e- ≫ _ ⇐ (Producer n)] ; len >= end (and start)
+  #:do[(pretty-print (stx->datum #'e-))]
+;  #:with n (if (attribute n/#f) #'n/#f #`#,(dynamic-require (stx->datum #'v) 'vid-ty2))
+  ;; #:do[(displayln #'n)]
+  ;; [⊢ m ≫ m- ⇐ 0]
+  ;;  [⊢ n ≫ n- ⇐ m] ; end >= start
+  ;;  [⊢ e- ≫ _ ⇐ (Producer n)] ; len >= end (and start)
    --------
-   [⊢ e- ⇒ (Producer (- n m))]])
+   [⊢ e- ⇒ Producer #;(Producer (- n m))]])
 
 (define-typed-syntax require-vid
   [(_ f)≫
