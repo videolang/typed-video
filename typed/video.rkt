@@ -589,7 +589,8 @@
    #:with y+props (transfer-props #'e- (assign-type #'y #'τ #:wrap? #f))
    --------
    [≻ (begin- ; TODO: make typed-variable-rename also transfer props?
-              (define-typed-variable-rename x ≫ y+props : τ)
+        (define-syntax x (make-variable-like-transformer #'y+props))
+;              (define-typed-variable-rename x ≫ y+props : τ)
               (define- y  e-))]]
   ;; define for functions ---------------------------------
   ;; polymorphic: explicit forall, TODO: infer tyvars
