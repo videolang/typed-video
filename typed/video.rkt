@@ -586,10 +586,15 @@
   ;; define for values ------------------------------------
   [(_ x:id e) ≫
    [⊢ e ≫ e- ⇒ τ]
-   #:with y+props (transfer-props #'e- (assign-type #'y #'τ #:wrap? #f))
+   #:with y+props (assign-type #'y #'τ #:wrap? #f)
+;   #:with y+props (transfer-props #'e- (assign-type #'y #'τ #:wrap? #f))
    --------
    [≻ (begin- ; TODO: make typed-variable-rename also transfer props?
-              (define-typed-variable-rename x ≫ y+props : τ)
+       (define-syntax x
+;         (make-variable-like-transformer #'y+props))
+         (make-rename-transformer (assign-type #'y #'τ #:wrap? #f)))
+;         (make-rename-transformer #'y+props))
+;              (define-typed-variable-rename x ≫ y+props : τ)
               (define- y  e-))]]
   ;; define for functions ---------------------------------
   ;; polymorphic: explicit forall, TODO: infer tyvars
@@ -1066,6 +1071,7 @@
           #'(let-syntax-
              ([tmp (make-variable-like-transformer
                     (let ([len (dynamic-require 'v 'vid-ty2)])
+                      (printf "dont get confused: ~a\n" len)
                       (syntax-property
                        #'(dynamic-require 'v 'vid)
                        ':
