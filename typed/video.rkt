@@ -28,6 +28,26 @@
          ann)
 
 ;; TODO:
+;; - 2018-04-11: fix inconsistent usage of integer terms as types
+;;   - the current implementation lifts terms to types somewhat loosely,
+;;     and uses conditionals in the type operations to allow both, e.g.,
+;;     some type-level terms have prop structure n : n :: Int (eg, those lifted
+;;     from +, etc), while others just have n : Int (eg, calling Producer with
+;;     literal Int)
+;;   - ideally, there should be a more consistent lifting/unlifting mechanism
+;;     ie, all type level terms should have consistent prop structure
+;;   - one solution is to write separate rules for each form, eg +, when it's
+;;     used as a type or term, or have a `typechecking?` flag
+;;     - but I would like to use the same uniform rule for both if possible
+;;   - another alternative: leave the ': val as Int, and add the "type" for use
+;;     in type-level computation at a different tag,
+;;     since the "checking" and "computation" (ie, constraints) part of the type
+;;     checker are more or less independent anyways
+;;     - this alternative gets rid of the subtyping relation?
+;; - 2018-04-11: check constraints properly
+;;   - right now, constraint "checking" is performed at call sites via type-eval
+;;   - ideally, constraints should be solved for each function definition
+;;   - possibly use Rosette?
 ;; - 2017-02-26: λ/video still not working
 ;; - 2017-02-13: #%module-begin define lifting not working for typed define
 ;;               DONE 2017-02-24
@@ -136,6 +156,7 @@
   (set-orig-to-stx
    (mk-type
     (syntax-parse stx
+;      [n #:do[(printf "Producer: ~a\n" (stx->datum #'n))] #:when #f #'(void)] ; for debugging
       ; TODO: this should use +inf.0 but using an int makes things easier for now
       [_:id #`(Producer- (v:#%datum . #,INF))] ; shorthand for inf length
       [(_ n:exact-nonnegative-integer) #'(Producer- n)]
