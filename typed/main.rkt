@@ -34,7 +34,7 @@
   (define tv-ids
     (append
      tv-ids-to-move
-     (list #'tv:multitrack #'tv:clip #'tv:blank)))
+     (list #'tv:multitrack))) ; TODO: should all all tv ids here?
   (define ru-ids
     (list #'ru:check-type #'ru:check-not-type #'ru:typecheck-fail)))
 
