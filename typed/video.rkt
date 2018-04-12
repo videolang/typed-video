@@ -801,8 +801,16 @@
    [⊢ (v:#%app v:clip f- #:length n-) ⇒ (Producer n)]])
 
 ;; returns length or false
+;; note: directories and relative paths might not be properly handled
+;; this might cause a failing test if the test is called from
+;; a directory other than where the file is
 (define-for-syntax (get-clip-len f)
-  (with-handlers ([exn? (λ _ #f)])
+  (with-handlers ([exn?
+                   (λ _
+                     (printf
+                      "warning: couldnt find file ~s\n(try running test in the test dir)\n"
+                      (stx->datum f))
+                     #f)])
     (parameterize ([current-namespace (make-base-namespace)])
       (namespace-require 'video)
       (eval `(get-property
