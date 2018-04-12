@@ -59,18 +59,6 @@
 (define ++ string-append)
 (define num->str number->string)
 
-(define (stx-filter-out-false . stxs)
-  (filter
-   (λ (xs) (andmap (λ (x) (and x (stx-e x))) xs))
-   (apply map list (map stx->list stxs))))
-
-(define (add-stx-props stx ks vs)
-  (for/fold ([stx stx]) ([k (in-stx-list ks)]
-                         [v (in-stx-list vs)])
-    (define k* (string->symbol (stx-e k))) ; must be symbol, to get properly transferred around
-    (define v* (stx-e v))
-    (syntax-property stx k* v*)))
-
 (define (stx-datum=? x y) (equal? (stx->datum x) (stx->datum y)))
 
 (define (stx-partition p? stx)

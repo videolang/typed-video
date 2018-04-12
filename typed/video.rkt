@@ -93,11 +93,6 @@
   (define (typecheck/Int? t) (typecheck? t Int+))
   (define (mk-type/Int t) (assign-type t Int+ #:wrap? #f))
 
-  ;; lift e to type (with kind Int) and assign as e's type
-  (define (lift/Int e) (assign-type e (mk-type/Int e)))
-  ;; lift e to type (with kind Int) and assign as e's type
-  (define (lift/Int* e+ e) (assign-type e+ (mk-type/Int e)))
-  
   ;; handle arith exprs used as types
   (define (arith-type? t)
     (define ty-as-k (typeof t))
@@ -112,11 +107,10 @@
 
   (current-type? (λ (t) (or (#%type? (kindof t)) (arith-type? t)))))
 
-;; macro version of lift/Int
+;; lifts term e to a type (with kind Int)
+;; (macro version of mk-type/Int)
 (define-syntax ↑/Int
-  (syntax-parser [(_ e) (lift/Int #'e)]))
-(define-syntax ↑/Int*
-  (syntax-parser [(_ e+ e) (lift/Int* #'e+ #'e)]))
+  (syntax-parser [(_ e) (mk-type/Int #'e)]))
 
 ;; TODO: support kws in function type
 (define-internal-type-constructor →)
@@ -260,13 +254,10 @@
       ;; - should only lift x :: Int part instead?
       [t+
        #:do[(define k-as-ty (typeof #'t+))]
-       #:when
-       (let (#;[k-as-ty (typeof #'t+)])
-         (and
-          k-as-ty
-          (or (integer? (stx-e k-as-ty)) ; literal
-              (and (id? k-as-ty) (typecheck/Int? (typeof k-as-ty)))))); tyvar
-       (mk-type/Int (typeof #'t+))]
+       #:when (and k-as-ty
+                   (or (integer? (stx-e k-as-ty)) ; literal
+                       (and (id? k-as-ty) (typecheck/Int? (typeof k-as-ty))))); tyvar
+       (mk-type/Int k-as-ty)]
       ;; number literals
       [n:int (mk-type/Int #'n.val)]
       [x:lit #'x.val] ; TODO: add type?
@@ -281,7 +272,7 @@
       [(~and orig ((~literal #%plain-app) _ p k))
        #:with (~literal v:get-property) (syntax-property this-syntax 'orig-app)
        #:with k*:string (ev #'k)
-       #:do [(define v (syntax-property #'p (string->symbol (stx-e #'k*.val))))]
+       #:do [(define v (hash-ref (syntax-property #'p 'PROPS) (stx-e #'k*.val) #f))]
        (or (and v #`#,v) #'orig)]
       ;; #%app equal?
       [(~and orig ((~literal #%plain-app) (~literal v:equal?) e1 e2))
@@ -462,13 +453,13 @@
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
-   [≻ (↑/Int* (v:#%app v:+ e- ...) (v:#%app v:+ e ...))]])
+   [⊢ (v:#%app v:+ e- ...) ⇒ (↑/Int (v:#%app v:+ e ...))]])
 
 (define-typed-syntax -
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
-   [≻ (↑/Int* (v:#%app v:- e- ...) (v:#%app v:- e ...))]])
+   [⊢ (v:#%app v:- e- ...) ⇒ (↑/Int (v:#%app v:- e ...))]])
 
 ;; integer divide
 (define-typed-syntax /
@@ -575,7 +566,7 @@
 (define-typed-syntax #%datum
   [(_ . n:integer) ≫ ; use singleton types
    --------
-   [≻ (↑/Int (v:#%datum . n))]]
+   [⊢ (v:#%datum . n) ⇒ (↑/Int (v:#%datum . n))]]
   [(_ . n:number) ≫ ; Num needed by composite-transition
    --------
    [⊢ (v:#%datum . n) ⇒ Num]]
@@ -589,23 +580,13 @@
    --------
    [#:error (type-error #:src #'x #:msg "Unsupported literal: ~v" #'x)]])
 
-;; top-level define
-(begin-for-syntax
-  (define (transfer-prop p from to)
-    (define v (syntax-property from p))
-    (syntax-property to p v))
-  (define (transfer-props from to)
-    (define props (syntax-property-symbol-keys from))
-    (define props/filtered (remove 'origin (remove 'orig (remove ': props))))
-    (foldl (lambda (p stx) (transfer-prop p from stx)) 
-           to 
-           props/filtered)))
-
 ;; TODO: internal defines
 (define-typed-syntax define
   ;; define for values ------------------------------------
   [(_ x:id e) ≫
    [⊢ e ≫ e- ⇒ τ]
+   ;; note: assign-type must be outside template
+   ;; ie, can't use define-typed-variable-rename
    #:with y+props (transfer-props #'e- (assign-type #'y #'τ #:wrap? #f))
    --------
    [≻ (begin- ; TODO: make typed-variable-rename also transfer props?
@@ -721,16 +702,9 @@
    #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
            ;; instantiate Cs orig before propagating
            (add-C (Cs-map inst-orig #'C)))]
-   ;; #:fail-unless (typechecks? #'(τ_arg ...) #'(τ_in ...))
-   ;;               (format "app failed ~a" (stx->datum this-syntax))
    [⊢ e_arg ≫ _ ⇐ τ_in] ... ; double expand?
    --------
    [⊢ (v:#%app e_fn- e_arg- ...) ⇒ τ_out]])
-
-#;(define-typed-syntax (ann e (~datum :) τ:type) ≫
-  [⊢ e ≫ e- ⇐ τ.norm]
-  --------
-  [⊢ e- ⇒ τ.norm])
 
 (define-typed-syntax begin
   [(_ e_unit ... e) ⇐ τ_expected ≫
@@ -849,10 +823,9 @@
   [(_ f #:properties (~and props ((~literal hash) (~seq k:str v:str) ...))) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ props ≫ props- ⇒ _]
+   #:do[(define static-props (make-immutable-hash (syntax->datum #'((k . v) ...))))]
    --------
-   [⊢ #,(add-stx-props
-         #'(v:#%app v:clip f- #:properties props-)
-         #'(k ...) #'(v ...)) ⇒ Producer]]
+   [⊢ (v:#%app v:clip f- #:properties props-) (⇒ : Producer) (⇒ PROPS #,static-props)]]
   [(_ f #:properties props) ≫
    [⊢ f ≫ f- ⇐ String]
    [⊢ props ≫ props- ⇒ _]
@@ -872,13 +845,6 @@
    [⊢ p ≫ p- ⇒ (~Producer n)]
    -------
    [⊢ #,(if (typechecking?) #'n #'(v:#%app v:producer-length p-)) ⇒ n]])
-      
-#;(define-syntax producer-length
-  (make-variable-like-transformer
-   (assign-type #'v:producer-length #'(→ #:bind {n} [x : (Producer n)] n #:when #t) #:wrap? #f)))
-;(provide producer-length)
-#;(provide (typed-out [[v:producer-length : (→ #:bind {n} [x : (Producer n)] n #:when #t)]
-                     producer-length]))
 
 ;; playlist combinators -------------------------------------------------------
 ;; TODO: should be interleaved Transition and Producer?
