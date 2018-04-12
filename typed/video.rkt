@@ -244,7 +244,15 @@
   (define (new-eval t)
     (syntax-parse (old-eval t)
     ;(define-type-eval t
-;      [t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
+      ;      [t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
+      ;; this must be first, before the next case
+      ;; in case, eval'ing the `if` produces a more precise type
+      ;; if
+      [(~and orig ((~literal v:if) tst e1 e2))
+       #:do [(define res (ev #'tst))]
+       (if (boolean? (stx-e res))
+           (if (stx-e res) (ev #'e1)  (ev #'e2))
+           #'orig)]
       ;; check for singleton types (includes tyvars)
       ;; - singletons eliminates some cases to handle specific #%apps
       ;; eg producer-length
@@ -261,17 +269,12 @@
       [n:int (mk-type/Int #'n.val)]
       [x:lit #'x.val] ; TODO: add type?
       [((~literal #%expression) e) ((current-type-eval) #'e)] ; `and` generates these #%exprs?
-      ;; if
-      [(~and orig ((~literal v:if) tst e1 e2))
-       #:do [(define res (ev #'tst))]
-       (if (boolean? (stx-e res))
-           (if (stx-e res) (ev #'e1)  (ev #'e2))
-           #'orig)]
       ;; #%app get-property
+      ;; the orig-app is needed by the fn here is a "lifted" id (due to contracts)
       [(~and orig ((~literal #%plain-app) _ p k))
        #:with (~literal v:get-property) (syntax-property this-syntax 'orig-app)
        #:with k*:string (ev #'k)
-       #:do [(define v (hash-ref (syntax-property #'p 'PROPS) (stx-e #'k*.val) #f))]
+       #:do [(define v (hash-ref (stx-e (syntax-property #'p 'PROPS)) (stx-e #'k*.val) #f))]
        (or (and v #`#,v) #'orig)]
       ;; #%app equal?
       [(~and orig ((~literal #%plain-app) (~literal v:equal?) e1 e2))
@@ -720,11 +723,15 @@
   (define current-join 
     (make-parameter 
       (λ (x y) 
-        (unless (typecheck? x y)
-          (type-error
-            #:src x
-            #:msg  "branches have incompatible types: ~a and ~a" x y))
-        x))))
+        (if (typecheck? x y)
+            (if (typecheck? y x)
+                x  ; types are equal, return either
+                y) ; return more restrictive type
+            (if (typecheck? y x)
+                x ; return more restrictire type
+                (type-error
+                 #:src x
+                 #:msg  "branches have incompatible types: ~a and ~a" x y)))))))
 
 (define-syntax ⊔
   (syntax-parser
@@ -804,11 +811,7 @@
 ;; a directory other than where the file is
 (define-for-syntax (get-clip-len f)
   (with-handlers ([exn?
-                   (λ _
-                     (printf
-                      "warning: couldnt find file ~s\n(try running test in the test dir)\n"
-                      (stx->datum f))
-                     #f)])
+                   (λ _ #f)])
     (parameterize ([current-namespace (make-base-namespace)])
       (namespace-require 'video)
       (eval `(get-property
