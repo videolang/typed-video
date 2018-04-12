@@ -9,18 +9,21 @@
          racket/list
          (for-syntax racket/base
                      racket/syntax
+                     syntax/stx
                      macrotypes/stx-utils
+                     (only-in "stx-utils.rkt" stx-partition)
                      syntax/parse
                      syntax/parse/lib/function-header
                      syntax/kerncase)
          (only-in turnstile expand/stop typeof erased current-use-stop-list?))
 
 ;; typed/video/lang/reader.rkt uses implicit (#%mod-beg vid values () . body)
+;; where `vid` is the implicit binding for the module's generated producer
 (define-syntax (~module-begin stx)
   (syntax-parse stx
-    [(_ id:id post-process exprs . body)
+    [(_ vid-id:id post-process exprs . body)
      #'(r:#%module-begin
-        (video-begin id post-process exprs . body))]))
+        (video-begin vid-id post-process exprs . body))]))
 
 ;; TODO: add λ/video
 #;(define-syntax (λ/video stx)
@@ -31,38 +34,46 @@
 (begin-for-syntax
   (define tv-ids-to-move
     (list #'tv:define #'tv:require #'tv:require-vid))
-  (define tv-ids
+  (define tv-stop-ids
     (append
      tv-ids-to-move
-     (list #'tv:multitrack))) ; TODO: should all all tv ids here?
-  (define ru-ids
-    (list #'ru:check-type #'ru:check-not-type #'ru:typecheck-fail)))
+     ; TODO: should this include all tv ids?
+     ; ow, some terms might not see lifted defines
+     (list #'tv:multitrack)))
+  (define testing-form-ids
+    (list #'ru:check-type #'ru:check-not-type #'ru:typecheck-fail))
+  (define (testing-form? stx)
+    (and (stx-pair? stx)
+         (let ([name (stx-car stx)])
+           (ormap (lambda (x) (free-id=? x name)) testing-form-ids)))))
 
 (require (for-syntax racket/pretty))
 (define-syntax (video-begin stx)
   (syntax-parse stx
     #;[(_ "λ/video" post-process exprs) ; TODO
-     #`(post-process (playlist . #,(reverse (syntax->list #'exprs))))]
-    [(_ id:id post-process exprs) ; base case, no more body exprs to check
+       #`(post-process (playlist . #,(reverse (syntax->list #'exprs))))]
+    ;; base case, no more body exprs to check
+    ;; `exprs` consists of top-level exprs and testing forms, in rev order
+    [(_ id:id post-process exprs) 
      #:with id-ty (format-id #'id "~a-ty" #'id)
      #:with id-ty2 (format-id #'id "~a-ty2" #'id)
      #:with (id* id-ty* id-ty2*) (generate-temporaries #'(id id-ty id-ty2))
+     ;; body may have non-producers, like rackunit statements;
+     ;; so first separate these out
+     #:with (tests es) (stx-partition testing-form? (stx-rev #'exprs))
      ;; typecheck the "top level" playlist
-     ;; - doing full expansion, instead of expand/stop,
+     ;; - note: doing full expansion, instead of expand/stop,
      ;;   may mess up the order of lifted expressions produced by contract-out
      ;;   eg, #lang typed/video (color "green" #:length 1) (define blue-clip (color "blue" #:length 8))
-
-     ;; body may have non-producers, like rackunit statements;
-     ;; so top-level-playlist filters these out
      ;; TODO: for now, dont post-process
      ;; (post-process should wrap this top-level-playlist)
-     #:with p #`(tv:top-level-playlist . #,(reverse (syntax->list #'exprs)))
-     #:with p- (expand/stop #'p)
-               ;(local-expand/capture-lifts #'p 'expression (list #'erased))
-     ;; #:do[(displayln "expanding in video begin:")]
-     ;; #:do[(pretty-print (syntax->datum #'p-))]
-     #:with (~and (~Producer (_ n)) ty) (typeof #'p-);(syntax-property #'p- ':) ; typeof
+     #:with p- (expand/stop #'(tv:playlist . es))
+     ;; get the type and export pieces separately
+     #:with (~and (~Producer (_ n)) ty) (typeof #'p-)
      #`(r:begin
+        
+        #,@#'tests
+        
         (r:define id* p-) ; this is the implicit "vid" binding
 
         ;; next two defs are vid's type; provide type as both:
@@ -74,7 +85,7 @@
         ;; I got stx= errors when trying to compare imported vs module-local stx
         ;; eg (=? (Producer 0) (Producer 0))
         ;; - even #%app is not the same
-        ;; - this is probably the same issue William ran into
+        ;; - this is probably the same issue William and Alexis ran into
         (r:define id-ty2* (r:#%datum . n))
 
         ;; use rename-out so require can use raw vid w/o renaming
@@ -82,6 +93,7 @@
         ;; - should untyped video do this as well?
         (r:provide (rename-out [id* id] [id-ty* id-ty]))
         (r:provide (rename-out [id-ty2* id-ty2])))]
+    ;; this clause more or less copied from untyped video
     [(_ id post-process exprs . body)
      (syntax-parse #'body
        [(b1 . body)
@@ -91,8 +103,7 @@
            (append
             (kernel-form-identifier-list)
             (list #'provide #'require)
-            tv-ids ru-ids)))
-;        (pretty-print (stx->datum expanded))
+            tv-stop-ids testing-form-ids)))
         (syntax-parse expanded
           #:literals (tv:begin)
           [(tv:begin b ...)

@@ -1,5 +1,6 @@
 #lang racket/base
 (require (for-syntax racket/base)
+         racket/list
          syntax/parse syntax/stx macrotypes/stx-utils)
 (provide (all-defined-out))
 
@@ -71,3 +72,6 @@
     (syntax-property stx k* v*)))
 
 (define (stx-datum=? x y) (equal? (stx->datum x) (stx->datum y)))
+
+(define (stx-partition p? stx)
+  (call-with-values (lambda () (partition p? (stx->list stx))) list))
