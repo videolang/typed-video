@@ -236,8 +236,7 @@
       [_ #f]))))
   (current-typecheck-relation new-type-rel)
   
-  ;; new type eval
-  (define (lit-stx? x) (define y (stx-e x)) (or (string? y)))
+  ;; new type eval ------------------------------------------------------------
 
   (define typechecking? (make-parameter #f))
   ;; TODO: need to assign outputs here with types?
@@ -589,10 +588,9 @@
    ;; ie, can't use define-typed-variable-rename
    #:with y+props (transfer-props #'e- (assign-type #'y #'τ #:wrap? #f))
    --------
-   [≻ (begin- ; TODO: make typed-variable-rename also transfer props?
+   [≻ (begin-
         (define-syntax x (make-variable-like-transformer #'y+props))
-;              (define-typed-variable-rename x ≫ y+props : τ)
-              (define- y  e-))]]
+        (define- y  e-))]]
   ;; define for functions ---------------------------------
   ;; polymorphic: explicit forall, TODO: infer tyvars
   [(_ (f Xs [x (~datum :) ty] ... (~optional (~seq #:when C) #:defaults ([C #'#t]))
