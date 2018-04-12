@@ -21,11 +21,10 @@
  composite-transition fade-transition image
  scale-filter attach-filter grayscale-filter cut-producer
  get-property set-property)
-(provide top-level-playlist require-vid #%type
+(provide require-vid
          (rename-out [typed-app #%app]) /
          Producer Transition Filter (for-syntax ~Producer)
-         Int Num Bool String Listof Hash Void →
-         ann)
+         Int Num Bool String Listof Hash Void →)
 
 ;; TODO:
 ;; - 2018-04-11: fix inconsistent usage of integer terms as types
@@ -728,7 +727,7 @@
    --------
    [⊢ (v:#%app e_fn- e_arg- ...) ⇒ τ_out]])
 
-(define-typed-syntax (ann e (~datum :) τ:type) ≫
+#;(define-typed-syntax (ann e (~datum :) τ:type) ≫
   [⊢ e ≫ e- ⇐ τ.norm]
   --------
   [⊢ e- ⇒ τ.norm])
@@ -976,14 +975,6 @@
      #:src #'xs
      #:msg "playlist must interleave producers and transitions, given: ~v"
      #'xs)]])
-(define-typed-syntax top-level-playlist
-  [(_ p ...) ≫
-   ;; "run" tests (via expansion)
-   #:with ps- (expands/stop #'(p ...))
-   ;; but dont include in runtime program
-   #:with ((p* _) ...) (stx-filter-out-false #'ps- (stx-map typeof #'ps-))
-   --------
-   [≻ (playlist p* ...)]])
 
 ;; transitions ----------------------------------------------------------------
 (define-typed-syntax composite-transition
