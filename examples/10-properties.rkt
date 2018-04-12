@@ -1,6 +1,5 @@
 #lang typed/video
-(require turnstile/examples/tests/rackunit-typechecking)
-
+(require turnstile/rackunit-typechecking)
 
 (typecheck-fail
  (clip "vid.mp4"

@@ -7,9 +7,9 @@
 (define (expand/observe stx)
   (parameterize ([current-expand-observe
                   (lambda (event-type stxobj)
-                    (when (or #;(equal? event-type 'lift-expr)
+                    (when (or (equal? event-type 'lift-expr)
                               (equal? event-type 'visit))
-;                          (writeln event-type)
+                          (writeln event-type)
                           (writeln stxobj)))])
     (expand-syntax stx)))
 
