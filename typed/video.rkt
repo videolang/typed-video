@@ -207,7 +207,9 @@
      (syntax-parser
        ;; TODO: how to match internal producer id?
        [(_ n)
-        #'((~literal #%plain-app) _:id ((~literal λ-) () _ ((~literal list-) n)))])))
+        #'((~literal #%plain-app)
+           (~and P:id (~fail #:unless (string-prefix? (symbol->string (stx->datum #'P)) "Producer")))
+           ((~literal λ-) () _ ((~literal list-) n)))])))
 
   (define (Producer? p)
     (syntax-parse p
@@ -249,13 +251,26 @@
               "Producer: expected expression of type Int, given ~a with type ~a"
               #'x #`#,(typeof ((current-type-eval) #'x)))]))))
 
-(define-internal-type-constructor Transition)
+(define-internal-type-constructor Transition*)
+(begin-for-syntax
+  (define-syntax ~Transition
+    (pattern-expander
+     (syntax-parser
+       ;; TODO: how to match internal producer id?
+       [(_ n)
+        #'((~literal #%plain-app)
+           (~and P:id (~fail #:unless (string-prefix? (symbol->string (stx->datum #'P)) "Transition")))
+           ((~literal λ-) () _ ((~literal list-) n)))])))
+  (define (Transition? t)
+    (syntax-parse t
+      [(~Transition _) #t]
+      [_ #f])))
 (define-syntax (Transition stx)
   (add-orig
    (mk-type
     (syntax-parse stx
-      [_:id #'(Transition- 0)]
-      [(_ n:exact-nonnegative-integer) #'(Transition- n)]))
+      [_:id #'(Transition*- 0)]
+      [(_ n:exact-nonnegative-integer) #'(Transition*- n)]))
    stx))
 
 ;; override typecheck-relation to consider numbers and other terms
