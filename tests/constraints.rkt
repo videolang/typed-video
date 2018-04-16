@@ -49,7 +49,7 @@
 (define (f1 {n1} [p1 : (Producer n1)] -> (Producer (- n1 5)))
   (multitrack p1 #:length (- (producer-length p1) 5)))
 
-;; (check-type (f1 (blank 10)) : (Producer 5))
+(check-type (f1 (blank 10)) : (Producer 5))
 ;; fails propagated Producer side-condition check
 (typecheck-fail
  (f1 (blank 2))

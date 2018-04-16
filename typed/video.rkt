@@ -221,7 +221,7 @@
     (syntax-parse stx
 ;      [n #:do[(printf "Producer: ~a\n" (stx->datum #'n))] #:when #f #'(void)] ; for debugging
       ; TODO: this should use +inf.0 but using an int makes things easier for now
-      [_:id #`(Producer*- #,(mk-type/Int #'(v:#%datum . #,INF)))] ; shorthand for inf length
+      [_:id #`(Producer*- #,(mk-type/Int #`(v:#%datum . #,INF)))] ; shorthand for inf length
       [(_ n:exact-nonnegative-integer) #`(Producer*- #,(mk-type/Int #'(v:#%datum . n)))]
       [(_ n) ; must accept Ints (as opposed to restricting to Nats), for -, etc
        #:with n- (ev #'n) ; let eval set orig
@@ -318,7 +318,7 @@
       (if expanded?
           t
           (let ([t+ (expand/stop t)])
-            ;; (printf "EVALING     : ~a\n"  (stx->datum t))
+            ;; (printf "EVALING    : ~a\n"  (stx->datum t))
             ;; (printf "EVALING+    : ~a\n"  (stx->datum t+))
             (syntax-parse t+
               [((~literal erased) e) (add-orig #'e t)]
