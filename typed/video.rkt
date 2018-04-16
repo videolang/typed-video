@@ -409,7 +409,7 @@
          [ns:ints
           (stxx>= #'ns.vals)]
          [ns
-          (pass-orig #'(erased (v:#%app v:>= . ns)) this-syntax)])]
+          (mk-type/Int (pass-orig #`(erased #,(pass-orig #'(v:#%app v:>= . ns) this-syntax)) this-syntax))])]
 ;      [((~literal #%plain-app) (~literal v:<=) . args)
       [((~literal v:#%app) (~literal v:<=) . args)
        ;       #:with ns:ints (type-evals #'args)
@@ -417,7 +417,7 @@
          [ns:ints
           (stxx<= #'ns.vals)]
          [ns
-          (pass-orig #'(erased (v:#%app v:<= . ns)) this-syntax)])]
+          (mk-type/Int (pass-orig #'(erased (v:#%app v:<= . ns)) this-syntax))])]
       ;; #%app +
 ;      [((~literal #%plain-app) (~literal v:+) . args)
       [((~literal v:#%app) (~literal v:+) . args)
@@ -527,8 +527,11 @@
   ;; extract precise failing condition from (and C ...), for better err msg
   ;; check C, print CX when fail
   (define (Cs->str CX C)
+    ;; (displayln '--------------)
     ;; (pretty-print (stx->datum CX))
     ;; (pretty-print (stx->datum C))
+    ;; (pretty-print (stx->datum (get-orig CX)))
+    ;; (pretty-print (stx->datum (get-orig C)))
     (syntax-parse (list CX C)
       ;; stop list produces v:and instead of v:if
       [(((~literal v:and) e1 . rst1)
@@ -536,6 +539,9 @@
        (if (stx-e ((current-type-eval) #'e2))
            (Cs->str #`(v:and . rst1) #`(v:and . rst2)) ; dont need base case? one of these must fail
            (Cs->str #'e1 #'e2))]
+      [(((~literal erased) (~and ((~literal if-) . _) e1))
+        ((~literal erased) (~and ((~literal if-) . _) e2)))
+       (Cs->str #'e1 #'e2)]
       ;; delete this case after adding stop list?
       [(((~literal if-) e1 e2 _)
         ((~literal if-) e3 e4 _))
