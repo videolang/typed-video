@@ -468,7 +468,7 @@
        #:do[;(printf "didnt match: ~a\n" (stx->datum #'t+))
             #;(displayln (typeof #'t+))
             #;(displayln (kindof #'t+))]
-       (syntax-parse #'t+ ;(old-eval #'t+)
+       (syntax-parse #'t+
          #;[(~Producer n)
        ;; TODO: return inf in some cases?
           #:with n- (syntax-parse (ev #'n)
@@ -845,7 +845,7 @@
    ;; TODO: use return type (if known) to help unify
    #:with (X+ty ...) (unify #'(τ_inX ...) #'(τ_arg ...))
    #:with solved-tys (lookup #'(X ...) #'(X+ty ...))
-   #:do[(define (inst e [id=? free-id=?]) ; TODO: should be bound-id=?
+   #:do[(define (inst e [id=? stx-datum=?]) ; TODO: should be bound-id=?
           (substs (stx-append #'solved-tys #'(e_arg- ...))
                   ; TODO: filter non-Int xs?
                   ; actually, no filtering should be ok?
@@ -882,6 +882,10 @@
    #:do [(unless (or (boolean? (stx-e #'C-)) (boolean? (stx-e (stx-cadr #'C-))))
            ;; instantiate Cs orig before propagating
            (add-C (Cs-map inst-orig #'C)))]
+   ;; #:do[(displayln '-----------)
+   ;;      (pretty-print (stx->datum #'(τ_inX ...)))
+   ;;      (pretty-print (stx->datum #'(τ_in ...)))
+   ;;      (pretty-print (stx->datum #'(τ_arg ...)))]
    [⊢ e_arg ≫ _ ⇐ τ_in] ... ; double expand?
    --------
    [⊢ (v:#%app e_fn- e_arg- ...) ⇒ τ_out]])
