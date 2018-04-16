@@ -84,7 +84,7 @@
   
 ;; types ----------------------------------------------------------------------
 (define-internal-binding-type ∀)
-(define-type-constructor Listof)
+(define-internal-type-constructor Listof*)
 (define-base-types String Int Num Bool Hash Void Filter)
 
 (begin-for-syntax
@@ -253,6 +253,18 @@
 
 (define-internal-type-constructor Transition*)
 (begin-for-syntax
+  (define-syntax ~Listof
+    (pattern-expander
+     (syntax-parser
+       ;; TODO: how to match internal producer id?
+       [(_ t)
+        #'((~literal #%plain-app)
+           (~and C:id (~fail #:unless (string-prefix? (symbol->string (stx->datum #'C)) "Listof")))
+           ((~literal λ-) () _ ((~literal list-) t)))])))
+  (define (Listof? t)
+    (syntax-parse t
+      [(~Listof _) #t]
+      [_ #f]))
   (define-syntax ~Transition
     (pattern-expander
      (syntax-parser
@@ -265,6 +277,13 @@
     (syntax-parse t
       [(~Transition _) #t]
       [_ #f])))
+
+(define-syntax (Listof stx)
+  (add-orig
+   (mk-type
+    (syntax-parse stx
+      [(_ t) #'(Listof*- t)]))
+   stx))
 (define-syntax (Transition stx)
   (add-orig
    (mk-type
