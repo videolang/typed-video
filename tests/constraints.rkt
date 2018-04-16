@@ -49,7 +49,7 @@
 (define (f1 {n1} [p1 : (Producer n1)] -> (Producer (- n1 5)))
   (multitrack p1 #:length (- (producer-length p1) 5)))
 
-(check-type (f1 (blank 10)) : (Producer 5))
+;; (check-type (f1 (blank 10)) : (Producer 5))
 ;; fails propagated Producer side-condition check
 (typecheck-fail
  (f1 (blank 2))
@@ -105,12 +105,12 @@
  (f4* (blank 0))
  #:with-msg
  (add-escs
-  "#%app: while applying fn f4*;\nfailed condition: (>= (- n4 5) n4);\ninferred: n4 = 0;\nfor function type: (→ #:bind (n4) (p4 : (Producer n4)) (Producer n4) #:when (and (>= (- (producer-length p4) 5) n4) (>= n4 (- (producer-length p4) 5)) (>= (- n4 5) 0) (>= n4 0)))"))
+  "#%app: while applying fn f4*;\nfailed condition: (>= (- n4 5) n4);\ninferred: n4 = 0;\nfor function type: (→ #:bind (n4) (p4 : (Producer n4)) (Producer n4) #:when (and (>= (- (producer-length p4) 5) n4) (>= n4 (- (producer-length p4) 5)) (>= (- (producer-length p4) 5) 0) (>= n4 0)))"))
 (typecheck-fail
  (f4* (blank 100))
  #:with-msg
  (add-escs
-  "#%app: while applying fn f4*;\nfailed condition: (>= (- n4 5) n4);\ninferred: n4 = 100;\nfor function type: (→ #:bind (n4) (p4 : (Producer n4)) (Producer n4) #:when (and (>= (- (producer-length p4) 5) n4) (>= n4 (- (producer-length p4) 5)) (>= (- n4 5) 0) (>= n4 0)))"))
+  "#%app: while applying fn f4*;\nfailed condition: (>= (- n4 5) n4);\ninferred: n4 = 100;\nfor function type: (→ #:bind (n4) (p4 : (Producer n4)) (Producer n4) #:when (and (>= (- (producer-length p4) 5) n4) (>= n4 (- (producer-length p4) 5)) (>= (- (producer-length p4) 5) 0) (>= n4 0)))"))
 ;; explicit + implicit constraint
 (define (f5 {n5} [p5 : (Producer n5)] #:when (<= n5 100) -> (Producer (- n5 5)))
   (cut-producer p5 #:end (- (producer-length p5) 5)))
@@ -134,4 +134,3 @@
   (playlist (blank 1) p6))
 (check-type (f6 (blank 0)) : (Producer 1))
 (check-type (f6 (blank 100)) : (Producer 101))
-

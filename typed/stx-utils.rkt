@@ -1,15 +1,37 @@
 #lang racket/base
-(require (for-syntax racket/base)
+(require (for-syntax racket/base syntax/parse)
          racket/list
-         syntax/parse syntax/stx macrotypes/stx-utils)
+         syntax/parse syntax/stx macrotypes/stx-utils
+         (for-template (only-in video [#%datum v#%datum]) ; for matching in stx class
+                       (only-in racket/base [quote corequote])
+                       (only-in turnstile erased)))
 (provide (all-defined-out))
 
 ;; these stx classes match both lits and expanded (ie, quoted) lits
 ;; for some reason, (~literal quote) not matching
-(define-syntax-class num
-  (pattern (~or n:number (_ n:number)) #:attr val #'n))
-(define-syntax-class int 
-  (pattern (~or n:integer (_ n:integer)) #:attr val #'n))
+(define-syntax define-lit-stx-class
+  (syntax-parser
+    [(_ NAME (~datum :) CLS)
+     #'(define-syntax-class NAME
+         (pattern (~or (~var x CLS)
+                       ((~literal corequote) (~var x CLS))
+                       ((~literal v#%datum) . (~var x CLS))
+                       #;((~literal erased) ((~literal v#%datum) . (~var x CLS))))
+                  #:attr val #'x))]))
+(define-lit-stx-class num : number)
+(define-lit-stx-class int : integer)
+(define-lit-stx-class bool : boolean)
+(define-lit-stx-class string : str)
+#;(define-syntax-class num
+  (pattern (~or n:number
+                ((~literal v-quote) n:number)
+                ((~literal v-#%datum) . n:number))
+           #:attr val #'n))
+#;(define-syntax-class int 
+  (pattern (~or n:integer
+                ((~literal v-quote) n:integer)
+                ((~literal v-#%datum) . n:integer))
+           #:attr val #'n))
 (define-syntax-class int+others
   (pattern (~and stx ((~or n:int o) ...))
            #:attr vals #'(n.val ...)
@@ -17,10 +39,16 @@
            #:attr sum (datum->stx #'stx (stx+ #'vals))))
 (define-syntax-class ints
   (pattern (n:int ...) #:attr vals #'(n.val ...)))
-(define-syntax-class bool
-  (pattern (~or b:boolean (_ b:boolean)) #:attr val #'b))
-(define-syntax-class string
-  (pattern (~or s:str (_ s:str)) #:attr val #'s))
+#;(define-syntax-class bool
+  (pattern (~or b:boolean
+                ((~literal v-quote) b:boolean)
+                ((~literal v-#%datum) . b:boolean))
+           #:attr val #'b))
+#;(define-syntax-class string
+  (pattern (~or s:str
+                ((~literal v-quote) s:str)
+                ((~literal v-#%datum) . s:str))
+                #:attr val #'s))
 (define-syntax-class lit
   (pattern (~or x:bool x:int x:num x:string) #:attr val #'x.val))
 

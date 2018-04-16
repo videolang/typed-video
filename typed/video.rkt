@@ -83,7 +83,7 @@
 (define-syntax-category :: kind)
   
 ;; types ----------------------------------------------------------------------
-(define-binding-type ∀)
+(define-internal-binding-type ∀)
 (define-type-constructor Listof)
 (define-base-types String Int Num Bool Hash Void Filter)
 
@@ -123,14 +123,19 @@
 ;  [a ≫ #:do[(displayln (stx->datum #'a))] #:when #f --- [≻ (void)]]
   ;; can't use :type stx class on input bc it needs X and x in context
   [(_ #:bind (X:id ...) (x:id (~datum :) ty) ... ty-out #:when C ~!) ≫
-   [([X ≫ X- : Int] ...) ([x ≫ x- : ty] ...)
+   #;[([X ≫ X- : Int] ...) ([x ≫ x- : ty] ...)
     ⊢ [ty ≫ ty-:type ⇒ : _] ...
       [ty-out ≫ ty-out-:type ⇒ : _]
       [C ≫ C- ⇐ : Bool]]
+   #:do[(current-use-stop-list? #t)]
+   #:with [(X- ...) (x- ...) (ty- ... ty-out- C-)]
+          (expands/ctxs #'(ty ... ty-out C)
+                        #:ctx #'([x : ty] ...) #:tvctx #'([X : Int] ...)
+                        #:stop-list? #t)
    ----------
    [≻ #,(add-orig
-         #`(∀ (X- ...) (∀ (x- ...) #,(mk-type #'(→- ty- ... ty-out- C-))))
-         #'(→ ty ... ty-out))]]
+         #`(∀- (X- ...) (∀- (x- ...) #,(mk-type #'(→- ty- ... ty-out- C-))))
+         #'(→ #:bind (X ...) (x : ty) ... ty-out #:when C))]]
   [(_ #:bind (X:id ...) ty ... ty-out #:when C ~!) ≫
    #:with (x ...) (generate-temporaries #'(ty ...))
    ----------
@@ -143,7 +148,72 @@
    [≻ (→ #:bind () ty ...)]])
 
 (define-for-syntax INF 999999)
-(define-internal-type-constructor Producer)
+(define-internal-type-constructor Producer*)
+
+(begin-for-syntax
+
+  ;; matches stopped version of forall and arrow
+  ;; TODO: doesnt check the internal id right now
+  (define-syntax ~∀/stopped
+    (pattern-expander
+     (syntax-parser
+       ;; TODO: how to match internal producer id?
+       [(_ Xs pat)
+        #'(~and tmp
+                (~parse
+                 ((~literal #%plain-app) forall:id
+                  ((~literal λ-) Xs info-#%expr ((~literal list-) pat)))
+                 #'tmp))])))
+  (define-syntax ~→/stopped
+    (pattern-expander
+     (syntax-parser
+       ;; TODO: how to match internal producer id?
+       [(_ . pat)
+        #'(~and tmp
+                (~parse
+                 ((~literal #%plain-app) arr:id
+                  ((~literal λ-) Xs info-#%expr ((~literal list-) . pat)))
+                 #'tmp))])))
+  ;; matches a type defined with define-type-constructor, expanded with stop list
+  ;; returns a version of that type with its arguments recursively tyeval'ed
+  (define-syntax ~Any/eval
+    (pattern-expander
+     (syntax-parser
+       ;; TODO: how to match internal producer id?
+       [(_ ty-)
+        #'(~and tmp
+                (~parse
+                 ((~and (~literal #%plain-app) app) C:id
+                  ((~and (~literal λ-) lam) Xs info-#%expr ((~and (~literal list-) lst) . args)))
+                 #'tmp)
+                (~parse ty-
+                        (pass-orig
+                         (mk-type #`(app C (lam Xs info-#%expr (lst . #,(stx-map ev #'args)))))
+                         #'tmp)))])))
+  (define-syntax ~Producer/eval
+    (pattern-expander
+     (syntax-parser
+       ;; TODO: how to match internal producer id?
+       [(_ P-)
+        #'(~and tmp
+                (~parse
+                 ((~and (~literal #%plain-app) pa) P:id
+                  ((~and (~literal λ-) lam) () #%expr ((~and (~literal list-) lst) n)))
+                 #'tmp)
+                (~parse P- (mk-type #`(pa P (lam () #%expr (lst #,(ev #'n)))))))])))
+                
+  (define-syntax ~Producer
+    (pattern-expander
+     (syntax-parser
+       ;; TODO: how to match internal producer id?
+       [(_ n)
+        #'((~literal #%plain-app) _:id ((~literal λ-) () _ ((~literal list-) n)))])))
+
+  (define (Producer? p)
+    (syntax-parse p
+      [(~Producer _) #t]
+      [_ #f])))
+
 (define-syntax (Producer stx)
   (define (set-orig-to-stx t) (add-orig t stx))
   (set-orig-to-stx
@@ -151,14 +221,14 @@
     (syntax-parse stx
 ;      [n #:do[(printf "Producer: ~a\n" (stx->datum #'n))] #:when #f #'(void)] ; for debugging
       ; TODO: this should use +inf.0 but using an int makes things easier for now
-      [_:id #`(Producer- (v:#%datum . #,INF))] ; shorthand for inf length
-      [(_ n:exact-nonnegative-integer) #'(Producer- n)]
+      [_:id #`(Producer*- #,(mk-type/Int #'(v:#%datum . #,INF)))] ; shorthand for inf length
+      [(_ n:exact-nonnegative-integer) #`(Producer*- #,(mk-type/Int #'(v:#%datum . n)))]
       [(_ n) ; must accept Ints (as opposed to restricting to Nats), for -, etc
        #:with n- (ev #'n) ; let eval set orig
        ;; check type
        #:when (arith-type? #'n-) ; any Int arith expr arg is ok
        ;; commit to this clause, then check or propagate constraint
-       #:with (~and ~! C-) ((current-type-eval) #'(v:#%app v:>= n- 0))
+       #:with (~and ~! C-) ((current-type-eval) #'(erased (v:#%app v:>= n- 0)))
        #:fail-unless (stx-e #'C-)
                      (fmt "expression has type ~a, which fails side-condition: ~a"
                           (stx->datum this-syntax) (stx->datum #'(>= n 0)))
@@ -172,7 +242,7 @@
                ;; (printf "orn: ~a\n" (get-orig #'n))
                (add-C (add-orig #'(>= n- 0)
                                 #`(>= #,(get-orig #'n-) 0))))]
-       #'(Producer- n-)]
+       #'(Producer*- n-)]
       [(_ x) (type-error
               #:src stx
               #:msg
@@ -216,11 +286,11 @@
       [((~Listof x) (~Listof y))         (typecheck? #'x #'y)]
       [((~Producer m) (~Producer n))     (typecheck? #'m #'n)]
       [((~Transition m) (~Transition n)) (typecheck? #'m #'n)]
-      [((~∀ Xs t1) (~∀ Ys t2))
+      [((~∀/stopped Xs t1) (~∀/stopped Ys t2))
         (and (stx-length=? #'Xs #'Ys)
              (typecheck? (substs #'Ys #'Xs #'t1) #'t2))]
       ;; TODO: enable checking of constraints in fns?
-      [((~→ i ... o c) (~→ j ... p d)) (typechecks? #'(j ... o) #'(i ... p))]
+      [((~→/stopped i ... o c) (~→/stopped j ... p d)) (typechecks? #'(j ... o) #'(i ... p))]
       [(m:int n:int) (stx>= #'(m n))]
       [(b1:bool b2:bool) (stx-equal? #'(b1 b2))]
       ;; arith expr: sort + terms
@@ -241,8 +311,24 @@
   (define typechecking? (make-parameter #f))
   ;; TODO: need to assign outputs here with types?
   (define old-eval (current-type-eval))
-  (define (new-eval t)
-    (syntax-parse (old-eval t)
+  (define (new-eval t [expanded? #f])
+    ;; t could be either term used as type, or actual type,
+    ;; - first try to expand as term (with stop list)
+    (define t+
+      (if expanded?
+          t
+          (let ([t+ (expand/stop t)])
+            ;; (printf "EVALING     : ~a\n"  (stx->datum t))
+            ;; (printf "EVALING+    : ~a\n"  (stx->datum t+))
+            (syntax-parse t+
+              [((~literal erased) e) (add-orig #'e t)]
+              [e #'e]))))
+    #;(printf "EVALING ~a: ~a\n"
+            (if expanded?
+                "(EXPANDED)"
+                "          ")
+            (stx->datum t+))
+    (syntax-parse t+
     ;(define-type-eval t
       ;      [t+ #:do [(printf "EVALing: ~a\n" (stx->datum #'t+))] #:when #f #'(void)]
       ;; this must be first, before the next case
@@ -265,40 +351,53 @@
                    (or (integer? (stx-e k-as-ty)) ; literal
                        (and (id? k-as-ty) (typecheck/Int? (typeof k-as-ty))))); tyvar
        (mk-type/Int k-as-ty)]
-      ;; number literals
-      [n:int (mk-type/Int #'n.val)]
-      [x:lit #'x.val] ; TODO: add type?
+      [n:int (mk-type/Int #'n.val)] ; int literal
+      [x:lit (mk-type #'x.val)] ; non-int literal ; TODO: add type?
       [((~literal #%expression) e) ((current-type-eval) #'e)] ; `and` generates these #%exprs?
       ;; #%app get-property
       ;; the orig-app is needed by the fn here is a "lifted" id (due to contracts)
-      [(~and orig ((~literal #%plain-app) _ p k))
+;      [(~and orig ((~literal #%plain-app) _ p k))
+      [(~and orig ((~literal v:#%app) _ p k))
        #:with (~literal v:get-property) (syntax-property this-syntax 'orig-app)
        #:with k*:string (ev #'k)
        #:do [(define v (hash-ref (stx-e (syntax-property #'p 'PROPS)) (stx-e #'k*.val) #f))]
        (or (and v #`#,v) #'orig)]
       ;; #%app equal?
-      [(~and orig ((~literal #%plain-app) (~literal v:equal?) e1 e2))
+;      [(~and orig ((~literal #%plain-app) (~literal v:equal?) e1 e2))
+      [(~and orig ((~literal v:#%app) (~literal v:equal?) e1 e2))
        #:with (x:lit y:lit) (type-evals #'(e1 e2))
        (stxx-equal? #'(x.val y.val))]
       ;; #%app >= and <=
-      [((~literal #%plain-app) (~literal v:>=) . args)
-       #:with ns:ints (type-evals #'args)
-       (stxx>= #'ns.vals)]
-      [((~literal #%plain-app) (~literal v:<=) . args)
-       #:with ns:ints (type-evals #'args)
-       (stxx<= #'ns.vals)]
+;      [((~literal #%plain-app) (~literal v:>=) . args)
+      [((~literal v:#%app) (~literal v:>=) . args)
+       ;       #:with ns:ints (type-evals #'args)
+       (syntax-parse (type-evals #'args)
+         [ns:ints
+          (stxx>= #'ns.vals)]
+         [ns
+          (pass-orig #'(erased (v:#%app v:>= . ns)) this-syntax)])]
+;      [((~literal #%plain-app) (~literal v:<=) . args)
+      [((~literal v:#%app) (~literal v:<=) . args)
+       ;       #:with ns:ints (type-evals #'args)
+       (syntax-parse (type-evals #'args)
+         [ns:ints
+          (stxx<= #'ns.vals)]
+         [ns
+          (pass-orig #'(erased (v:#%app v:<= . ns)) this-syntax)])]
       ;; #%app +
-      [((~literal #%plain-app) (~literal v:+) . args)
+;      [((~literal #%plain-app) (~literal v:+) . args)
+      [((~literal v:#%app) (~literal v:+) . args)
        #:with ns:int+others (type-evals #'args)
        (mk-type/Int
         (if (stx-null? #'ns.rest)
             #'ns.sum
             (if (zero? (stx-e #'ns.sum))
-                (add-orig #'(#%plain-app v:+ . ns.rest)
+                (add-orig #'(erased (v:#%app v:+ . ns.rest))
                           #'(+ . ns.rest))
-                #'(#%plain-app v:+ ns.sum . ns.rest))))]
+                #'(erased (v:#%app v:+ ns.sum . ns.rest)))))]
       ;; #%app -
-      [((~literal #%plain-app) (~literal v:-) a0 . args)
+;      [((~literal #%plain-app) (~literal v:-) a0 . args)
+      [((~literal v:#%app) (~literal v:-) a0 . args)
        #:with ns:int+others (type-evals #'args)
        (mk-type/Int
         (syntax-parse (ev #'a0)
@@ -306,29 +405,49 @@
            #:with tmp #`#,(- (stx-e #'n0.val) (stx-e #'ns.sum))
            (if (stx-null? #'ns.rest)
                #'tmp
-               #`(#%plain-app v:- tmp . ns.rest))]
-          [o0 (if (and (stx-null? #'ns.rest)
+               #`(erased (v:#%app v:- tmp . ns.rest)))]
+          [o0
+           (if (and (stx-null? #'ns.rest)
                        (zero? (stx-e #'ns.sum)))
                   #'o0
-                  (add-orig #`(#%plain-app v:- o0 ns.sum . ns.rest)
+;                  (add-orig #`(#%plain-app v:- o0 ns.sum . ns.rest)
+                  (add-orig #`(erased (v:#%app v:- o0 ns.sum . ns.rest))
                             #'(- o0 ns.sum . ns.rest)))]))]
       ;; #%app / (ie, quotient)
-      [((~literal #%plain-app) (~literal v:quotient) . args)
+;      [((~literal #%plain-app) (~literal v:quotient) . args)
+      [((~literal v:#%app) (~literal v:quotient) . args)
        #:with ns:ints (type-evals #'args)
        (mk-type/Int (datum->stx t (stx/ #'ns.vals)))]
       ;; #%app min
-      [((~literal #%plain-app) (~literal v:min) . args)
+;      [((~literal #%plain-app) (~literal v:min) . args)
+      [((~literal v:#%app) (~literal v:min) . args)
        #:with ns:ints (type-evals #'args)
        (mk-type/Int (datum->stx t (stx-min #'ns.vals)))]
-      [(~Producer n)
+      ; matched stopped tycons
+      [(~Any/eval ty-)
+;       #:do[(printf "stopped: ~a\n" (stx->datum #'ty-))]
+       #'ty-]
+      ;; should be base types and tyvars at this point
+      [t+ ; at this point, t+ is "real" type?, so do full expand
+       ; - not always true, could be term with var,
+       ; in which case full expansion would reveal lifts
+       #:do[;(printf "didnt match: ~a\n" (stx->datum #'t+))
+            #;(displayln (typeof #'t+))
+            #;(displayln (kindof #'t+))]
+       (syntax-parse #'t+ ;(old-eval #'t+)
+         #;[(~Producer n)
        ;; TODO: return inf in some cases?
-       #:with n- (syntax-parse (ev #'n)
-                   [x:exact-nonnegative-integer (syntax-property #'x 'orig (list #'x))]
-                   [x (pass-orig #'x #'n)])
-       (add-orig
-        (mk-type (expand/df #'(Producer- n-)))
-        #`(Producer #,(get-orig #'n-)))]
-      [t+ #'t+]))
+          #:with n- (syntax-parse (ev #'n)
+                      [x:exact-nonnegative-integer (syntax-property #'x 'orig (list #'x))]
+                      [x (pass-orig #'x #'n)])
+          (add-orig
+           (mk-type (expand/df #'(Producer- n-)))
+           #`(Producer #,(get-orig #'n-)))]
+         [t++
+          #;[(printf "after full expand:\n")
+               (displayln (typeof #'t++))
+               (displayln (kindof #'t++))]
+          #'t++])]))
   (current-type-eval
    (lambda (t)
      (parameterize ([typechecking? #t])
@@ -347,8 +466,12 @@
   (define (unify tysX tys)
     (stx-appendmap unify1 tysX tys))
   (define (unify1 tyX ty)
+;    (printf "unify\n~a\n~a\n" (stx->datum tyX) (stx->datum ty))
     (syntax-parse (list tyX ty)
-      [((~Producer (_ (~literal v:-) n:id x)) (~Producer m))
+      ;; [((~Producer (_ (~literal v:-) n:id x)) (~Producer m))
+      ;;  #'((n (v:#%app v:+ m x)))]
+      [((~Producer ((~literal erased) ((~literal v:#%app) (~literal v:-) n:id x)))
+        (~Producer m))
        #'((n (v:#%app v:+ m x)))]
       [((~Producer n:id) (~Producer m))
        #'((n m))]
@@ -359,6 +482,7 @@
   (define current-Cs (make-parameter '()))
 
   (define (add-C C*)
+;    (printf "adding ~a\n" (stx->datum C*))
     (define C (syntax-local-introduce C*))
     (unless (C-exists? C)
       (current-Cs (cons C (current-Cs)))))
@@ -369,9 +493,16 @@
   ;; extract precise failing condition from (and C ...), for better err msg
   ;; check C, print CX when fail
   (define (Cs->str CX C)
-    ;; (displayln (stx->datum CX))
-    ;; (displayln (stx->datum C))
+    ;; (pretty-print (stx->datum CX))
+    ;; (pretty-print (stx->datum C))
     (syntax-parse (list CX C)
+      ;; stop list produces v:and instead of v:if
+      [(((~literal v:and) e1 . rst1)
+        ((~literal v:and) e2 . rst2))
+       (if (stx-e ((current-type-eval) #'e2))
+           (Cs->str #`(v:and . rst1) #`(v:and . rst2)) ; dont need base case? one of these must fail
+           (Cs->str #'e1 #'e2))]
+      ;; delete this case after adding stop list?
       [(((~literal if-) e1 e2 _)
         ((~literal if-) e3 e4 _))
        (if (stx-e ((current-type-eval) #'e3))
@@ -411,7 +542,7 @@
               (get-orig C)
               #`(and #,(get-orig C) #,@(map get-orig (current-Cs))))))
     (add-orig
-     #`(and #,C- #,@(map syntax-local-introduce (current-Cs)))
+     #`(and #,(add-orig C- C) #,@(map syntax-local-introduce (current-Cs)))
      orig))
 
   (define (X+tys->str Xs tys) ; Xs are tyvars and tys are numbers
@@ -455,13 +586,13 @@
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
-   [⊢ (v:#%app v:+ e- ...) ⇒ (↑/Int (v:#%app v:+ e ...))]])
+   [⊢ (v:#%app v:+ e- ...) ⇒ (↑/Int (erased (v:#%app v:+ e ...)))]])
 
 (define-typed-syntax -
   [(_ e ...) ≫
    [⊢ e ≫ e- ⇐ Int] ...
    ----------
-   [⊢ (v:#%app v:- e- ...) ⇒ (↑/Int (v:#%app v:- e ...))]])
+   [⊢ (v:#%app v:- e- ...) ⇒ (↑/Int (erased (v:#%app v:- e ...)))]])
 
 ;; integer divide
 (define-typed-syntax /
@@ -640,7 +771,13 @@
     ;; can't use :type stx class on input bc it needs X and x in context
     [τ_in ≫ τ_in-:type ⇒ :: _] ...
     [τ_out ≫ τ_out-:type ⇒ :: _]
-    [C0 ≫ C0- ⇐ Bool]]
+      [C0 ≫ C0- ⇐ Bool]]
+   ;; #:with [(X- ...) (i*- ...) (x- ...) (e- τ_in- ... τ_out- C0-)]
+   ;; (expands/ctxs/turn #'(e τ_in ... τ_out C0)
+   ;;                    #:tvctx #'([X : Int] ...)
+   ;;                    #:tvctx2 #'([i* : Int] ...)
+   ;;                    #:ctx #'([x : tyx] ...)
+   ;;                    #:stop-list? #t)
    #:with C (merge-Cs #'C0- #:orig #'C0)
    #:with (o- ...) (stx-drop #'(x- ...) (stx-length #'(i ...)))
    ;; NOTE: the xs are in different order than surface program
@@ -666,14 +803,15 @@
 
 (define-typed-syntax typed-app
   [(_ e_fn e_arg ...) ≫ ; polym, must instantiate
-   [⊢ e_fn ≫ e_fn- ⇒ (~and ty-fn (~∀ (X ...) ~! (~∀ (x ...) (~→ τ_inX ... τ_outX CX))))]
+;   [⊢ e_fn ≫ e_fn- ⇒ (~and ty-fn (~∀ (X ...) ~! (~∀ (x ...) (~→ τ_inX ... τ_outX CX))))]
+   [⊢ e_fn ≫ e_fn- ⇒ (~and ty-fn (~∀/stopped (X ...) (~∀/stopped (x ...) (~→/stopped τ_inX ... τ_outX CX))))]
    #:fail-unless (stx-length=? #'[τ_inX ...] #'[e_arg ...])
                   (num-args-fail-msg #'e_fn #'[τ_inX ...] #'[e_arg ...])
    [⊢ e_arg ≫ e_arg- ⇒ τ_arg] ...
    ;; TODO: use return type (if known) to help unify
    #:with (X+ty ...) (unify #'(τ_inX ...) #'(τ_arg ...))
    #:with solved-tys (lookup #'(X ...) #'(X+ty ...))
-   #:do[(define (inst e [id=? bound-id=?])
+   #:do[(define (inst e [id=? free-id=?]) ; TODO: should be bound-id=?
           (substs (stx-append #'solved-tys #'(e_arg- ...))
                   ; TODO: filter non-Int xs?
                   ; actually, no filtering should be ok?
@@ -686,7 +824,14 @@
         (define (do-inst e)
           (inst-orig (inst e)))]
    #:with (τ_in ... τ_out C) (stx-map do-inst #'(τ_inX ... τ_outX CX))
+   ;; #:do[(displayln '-----------)
+   ;;      (pretty-print (stx->datum #'CX))
+   ;;      (pretty-print (stx->datum #'C))
+   ;; ;;      (pretty-print (type->str #'CX))
+   ;;      ;;      (pretty-print (type->str #'C))
+   ;;      ]
    #:with C- ((current-type-eval) #'C)
+;   #:do[(pretty-print (stx->datum #'C-))]
    ;; if fail, search for precise C in (and C ...), to avoid a large err msg
    #:fail-unless (stx-e #'C-) (format (string-join
                                        (list "while applying fn ~a"

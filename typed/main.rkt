@@ -68,7 +68,8 @@
      ;; (post-process should wrap this top-level-playlist)
      #:with p- (expand/stop #'(tv:playlist . es))
      ;; get the type and export pieces separately
-     #:with (~and (~Producer (_ n)) ty) (typeof #'p-)
+     ;     #:with (~and (~Producer (_ n)) ty) (typeof #'p-)
+     #:with (~and (~Producer n) ty) (typeof #'p-)
      #`(r:begin
         
         #,@#'tests
