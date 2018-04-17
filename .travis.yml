@@ -5,7 +5,9 @@ env:
   global:
     - RACKET_DIR=~/racket
   matrix:
-    - RACKET_VERSION="6.9"
+    - RACKET_VERSION="6.10"
+    - RACKET_VERSION="6.11"
+    - RACKET_VERSION="6.12"
     - RACKET_VERSION="HEAD"
 matrix:
   allow_failures:
@@ -32,10 +34,10 @@ before_install:
   - sh -e /etc/init.d/xvfb start
   - sleep 3 # give xvfb some time to start
   # install (untyped) racket-video
-  - git clone https://github.com/stchang/racket-video.git ../video
+  - git clone --branch v0.1-branch https://github.com/stchang/video.git ../video
   - raco pkg install --auto -n video ../video
   # install turnstile
-  - git clone --branch tyeval https://github.com/stchang/macrotypes.git ../macrotypes
+  - git clone --branch typed-video-wip https://github.com/stchang/macrotypes.git ../macrotypes
   - raco pkg install --auto -n turnstile ../macrotypes/
   
 install:
