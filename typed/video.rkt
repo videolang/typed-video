@@ -7,7 +7,7 @@
     [(_ . xs)
      #'(begin
          (require (except-in video
-                   #%app / #;producer-length ; manually provided
+                   #%app / ; manually provided
                    . xs))
          (provide (all-from-out video))
          (provide . xs))]))
@@ -170,7 +170,7 @@
                ;; (displayln (stx->datum #'n-))
                ;; (printf "or : ~a\n" (get-orig #'n-))
                ;; (printf "orn: ~a\n" (get-orig #'n))
-               (add-C (add-orig #;(assign-type #'C- #'Bool #:wrap? #f) #'(>= n- 0)
+               (add-C (add-orig #'(>= n- 0)
                                 #`(>= #,(get-orig #'n-) 0))))]
        #'(Producer- n-)]
       [(_ x) (type-error

@@ -47,11 +47,10 @@
          (let ([name (stx-car stx)])
            (ormap (lambda (x) (free-id=? x name)) testing-form-ids)))))
 
-(require (for-syntax racket/pretty))
 (define-syntax (video-begin stx)
   (syntax-parse stx
     #;[(_ "λ/video" post-process exprs) ; TODO
-       #`(post-process (playlist . #,(reverse (syntax->list #'exprs))))]
+     #`(post-process (playlist . #,(reverse (syntax->list #'exprs))))]
     ;; base case, no more body exprs to check
     ;; `exprs` consists of top-level exprs and testing forms, in rev order
     [(_ id:id post-process exprs) 
